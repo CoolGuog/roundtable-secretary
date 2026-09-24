@@ -1,0 +1,15 @@
+<view class="page">
+  <text class="eyebrow">MY CALENDAR</text><view class="title">给时间留个位置。</view>
+  <view class="subtitle">{{mode}} · 当前按设备本地时间记录。</view>
+  <view class="card">
+    <view class="card-title">个人安排</view>
+    <view wx:if="{{loading}}" class="empty">正在读取…</view>
+    <view wx:elif="{{items.length === 0}}" class="empty">还没有安排。<view>从一条虚构的日程开始体验。</view></view>
+    <view wx:for="{{items}}" wx:key="id" class="record row">
+      <view><view class="record-title">{{item.title}}</view><view class="muted">{{item.date}} · {{item.startTime}}—{{item.endTime}}</view></view>
+      <button class="link-button" data-id="{{item.id}}" bindtap="remove">删除</button>
+    </view>
+    <button class="secondary" bindtap="add">回到秘书，添加安排</button>
+  </view>
+  <view class="error" wx:if="{{error}}">{{error}}</view>
+</view>

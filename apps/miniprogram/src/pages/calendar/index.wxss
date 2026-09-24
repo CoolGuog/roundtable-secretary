@@ -1,0 +1,3 @@
+.empty { white-space: pre-line; }
+.record > view { flex: 1; min-width: 0; }
+.record-title { overflow-wrap: break-word; }

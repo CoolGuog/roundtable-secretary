@@ -1,0 +1,12 @@
+.title { white-space: pre-line; }
+.intro { margin-top: 38rpx; }
+.intro-text { flex: 1; }
+.avatar { width: 112rpx; height: 112rpx; background: #f0f3e8; border-radius: 30rpx; position: relative; flex-shrink: 0; }
+.table { position: absolute; width: 48rpx; height: 48rpx; left: 32rpx; top: 32rpx; background: #295840; border-radius: 50%; }
+.dot { position: absolute; width: 16rpx; height: 16rpx; background: #89a66f; border-radius: 50%; }
+.d1 { top: 9rpx; left: 48rpx; }.d2 { bottom: 9rpx; left: 48rpx; }.d3 { left: 9rpx; top: 48rpx; }.d4 { right: 9rpx; top: 48rpx; }
+.saved { margin-top: 28rpx; font-size: 24rpx; color: #667a67; padding: 8rpx 0; }
+.steps { display: flex; gap: 14rpx; }
+.step { flex: 1; background: #eeeee6; padding: 24rpx 16rpx; border-radius: 18rpx; font-size: 22rpx; color: #92988b; }
+.step text { display: block; font-size: 34rpx; margin-bottom: 18rpx; }
+.step.active { background: #e3ebdc; color: #36543f; }

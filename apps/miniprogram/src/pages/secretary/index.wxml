@@ -1,0 +1,31 @@
+<view class="page">
+  <view class="row"><text class="eyebrow">ROUND TABLE</text><text class="badge">{{mode}}</text></view>
+  <view class="title">先说说，<view>你的安排。</view></view>
+  <view class="subtitle">让每个人的时间，都被认真考虑。</view>
+  <view class="card intro">
+    <view class="row">
+      <view class="avatar"><view class="dot d1"></view><view class="dot d2"></view><view class="dot d3"></view><view class="dot d4"></view><view class="table"></view></view>
+      <view class="intro-text"><view class="card-title">你的秘书 · 小圆</view><view class="muted spaced">先记下一条安排，建立你的个人日程。</view></view>
+    </view>
+    <button class="primary" bindtap="openForm">＋ 记一条个人安排</button>
+    <view class="saved row" bindtap="openCalendar"><text>已保存 {{count}} 条安排</text><text>查看日程 →</text></view>
+  </view>
+  <view class="card" wx:if="{{showForm}}">
+    <view class="card-title">确认这条安排</view>
+    <text class="field-label">安排名称</text>
+    <input class="field" value="{{title}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onTitle" />
+    <text class="field-label">日期</text>
+    <picker mode="date" value="{{date}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">{{date}}</view></picker>
+    <view class="two-col">
+      <view><text class="field-label">开始</text><picker mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime}}</view></picker></view>
+      <view><text class="field-label">结束</text><picker mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime}}</view></picker></view>
+    </view>
+    <view class="muted spaced">使用设备本地时间。当前请只填写虚构的演示安排。</view>
+    <button class="primary" loading="{{saving}}" disabled="{{saving}}" bindtap="save">确认保存</button>
+    <button class="secondary" disabled="{{saving}}" bindtap="closeForm">稍后再填</button>
+  </view>
+  <view class="error" wx:if="{{error}}">{{error}}</view>
+  <view class="section-label">从个人安排，到共同决定</view>
+  <view class="steps"><view class="step active"><text>01</text><view>建立个人日程</view></view><view class="step"><text>02</text><view>邀请朋友围桌</view></view><view class="step"><text>03</text><view>秘书协商安排</view></view></view>
+  <view class="notice">当前是第一阶段原型：只验证日程录入与保存，尚未连接模型、微信登录或多人协商。请勿输入真实隐私或 API Key。</view>
+</view>

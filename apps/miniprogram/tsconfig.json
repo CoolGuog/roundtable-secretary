@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2018",
+    "module": "commonjs",
+    "strict": true,
+    "noImplicitThis": false,
+    "rootDir": "src",
+    "outDir": "../../dist/miniprogram",
+    "lib": ["ES2020"],
+    "types": ["miniprogram-api-typings"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}

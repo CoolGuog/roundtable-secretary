@@ -1,0 +1,6 @@
+<view class="page">
+  <text class="eyebrow">AROUND THE TABLE</text><view class="title">各有安排，<view>坐下来商量。</view></view>
+  <view class="subtitle">每个人带着自己的秘书，形成共同的决定。</view>
+  <view class="card"><text class="badge">下一阶段</text><view class="card-title spaced">圆桌还在准备中</view><view class="subtitle spaced">完成个人日程与真实身份接入后，我们会加入活动邀请、成员权限和秘书协商。</view></view>
+  <view class="card"><view class="card-title">一场圆桌将这样开始</view><view class="subtitle spaced">1. 发起活动，说明目标与时间范围</view><view class="subtitle spaced">2. 分享邀请，成员带秘书加入</view><view class="subtitle spaced">3. 秘书提出方案，主人按需确认</view><view class="subtitle spaced">4. 保存共同日程，分别通知</view></view>
+</view>
