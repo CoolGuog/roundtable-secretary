@@ -62,7 +62,7 @@ enum MemorySource {
 // ---------------------------------------------------------------------------
 
 /// 用户。真实身份在阶段三接入微信登录（wx.login → 后台换取 openid）；
-/// 当前演示接口的随机会话身份不落库，不进本表。
+/// postgres 演示模式也会创建临时用户，不能视为真实微信身份。
 model User {
   id String @id @default(uuid()) @db.Uuid
 
@@ -80,8 +80,21 @@ model User {
 
   memories     PersonalMemory[]
   arrangements Arrangement[]
+  demoSessions DemoSession[]
 
   @@map("users")
+}
+
+/// 仅限本机演示；保存令牌的 SHA-256 摘要，不保存明文令牌。
+model DemoSession {
+  tokenHash String @id @map("token_hash") @db.VarChar(64)
+  userId String @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("demo_sessions")
 }
 
 /// 个人日程。

@@ -4,7 +4,7 @@ import { createApp } from '../apps/api/dist/app.js';
 
 let app, base;
 before(async () => {
-  app = await createApp();
+  app = await createApp({ storage: 'memory' });
   await app.listen(0, '127.0.0.1');
   base = await app.getUrl();
 });

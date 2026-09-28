@@ -4,6 +4,12 @@
   "private": true,
   "description": "圆桌秘书微信小程序与后台",
   "scripts": {
+    "db:generate": "prisma generate",
+    "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "prebuild:api": "prisma generate",
+    "pretypecheck": "prisma generate",
+    "test:postgres": "npm run build:api && node scripts/test-postgres.mjs",
     "build:api": "tsc -p apps/api/tsconfig.json",
     "build:mini": "node scripts/build-mini.mjs",
     "typecheck": "tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/miniprogram/tsconfig.json --noEmit",
