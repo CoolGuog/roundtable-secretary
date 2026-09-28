@@ -1,0 +1,148 @@
+// 圆桌秘书 · 数据模型（草稿 v0，待 A/B 对齐后定稿）
+//
+// 本阶段范围：用户、个人记忆、个人日程。
+// 圆桌、成员、提案、确认属于阶段二及以后，待接口约定确定后再补，避免此处先入为主。
+//
+// 命名约定：
+//   - 数据库表名 / 列名用 snake_case（靠 @map / @@map）
+//   - Prisma 模型用 PascalCase，字段用 camelCase
+//   - 时间统一用 timestamptz（带时区），不用 naive timestamp
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// 枚举
+// ---------------------------------------------------------------------------
+
+/// 日程在圆桌协商中对外暴露的程度。
+/// 对应分工文档「只交换本次活动授权的忙闲摘要和必要偏好」
+/// 与「不会泄露私人安排标题或原因」。
+enum NegotiationScope {
+  /// 完全私密，不参与协商
+  PRIVATE
+  /// 只暴露「该时段占用」，不暴露标题
+  BUSY_ONLY
+  /// 允许在圆桌内暴露标题与时间
+  TITLE_AND_TIME
+
+  @@map("negotiation_scope")
+}
+
+/// 个人记忆的分类，用于「偏好和记忆管理页」（阶段四）。
+enum MemoryCategory {
+  /// 偏好，例如「偏好上午开会」
+  PREFERENCE
+  /// 硬约束，例如「周三下午不可用」
+  CONSTRAINT
+  /// 其他备注
+  NOTE
+
+  @@map("memory_category")
+}
+
+/// 记忆来源。分工文档要求「保留来源与更新时间」。
+enum MemorySource {
+  /// 用户手动录入
+  USER_INPUT
+  /// 由秘书从自然语言中提炼（阶段四）
+  SECRETARY
+
+  @@map("memory_source")
+}
+
+// ---------------------------------------------------------------------------
+// 模型
+// ---------------------------------------------------------------------------
+
+/// 用户。真实身份在阶段三接入微信登录（wx.login → 后台换取 openid）；
+/// 当前演示接口的随机会话身份不落库，不进本表。
+model User {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// 微信身份。阶段三回填；同一微信用户唯一。
+  wxOpenId  String? @unique @map("wx_open_id") @db.VarChar(64)
+  wxUnionId String? @unique @map("wx_union_id") @db.VarChar(64)
+
+  /// 展示名（对应现有演示接口的 name，校验为 1~20 字）
+  displayName String @map("display_name") @db.VarChar(20)
+  /// 秘书名（对应现有演示接口的 secretaryName）
+  secretaryName String @default("小圆") @map("secretary_name") @db.VarChar(20)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memories     PersonalMemory[]
+  arrangements Arrangement[]
+
+  @@map("users")
+}
+
+/// 个人日程。
+///
+/// 用**绝对时间点**（timestamptz）而不是「日期 + HH:mm」建模，原因：
+///   1. 跨日安排天然支持（如 23:00–次日 01:00），无需在应用层特殊处理；
+///   2. 消除时区歧义 —— 日期字符串在不同解释下含义不同，时间点不会；
+///   3. 协商阶段做区间求交时可以直接比较，不用拼字符串。
+/// 首版仍然统一按北京时间录入（应用层用 Asia/Shanghai 转换），
+/// timezone 字段先保留，便于将来支持多时区。
+model Arrangement {
+  id      String @id @default(uuid()) @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+
+  /// 安排名称，1~60 字（与现有接口校验保持一致）
+  title String @db.VarChar(60)
+
+  /// 起止时间点（含时区）
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  /// IANA 时区名，首版统一 Asia/Shanghai
+  timezone String @default("Asia/Shanghai") @db.VarChar(40)
+
+  /// 在圆桌协商中的暴露程度。默认完全私密，需用户显式授权。
+  scope NegotiationScope @default(PRIVATE)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  /// 忙闲摘要与冲突检测的主要查询路径
+  @@index([ownerId, startsAt])
+  @@map("arrangements")
+}
+
+/// 个人记忆 / 偏好。按用户隔离；保留来源与更新时间；用户可查看、修改、删除。
+/// 阶段四的「偏好和记忆管理页」直接读写本表。
+model PersonalMemory {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  category MemoryCategory @default(PREFERENCE)
+
+  /// 简短标签，例如「偏好时段」
+  label String @db.VarChar(40)
+  /// 具体内容
+  content String @db.VarChar(500)
+
+  /// 来源（手动录入 / 秘书提炼）
+  source    MemorySource @default(USER_INPUT)
+  /// 来源引用，例如秘书会话 id（阶段四）
+  sourceRef String?      @map("source_ref") @db.VarChar(200)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 不设 (userId, label) 唯一约束：同一标签允许有多条记忆
+  @@index([userId])
+  @@map("personal_memories")
+}
