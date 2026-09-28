@@ -53,6 +53,40 @@ test('拒绝伪造所属用户、无效日期及倒置时间', async () => {
     { ...sample, title: ' ' },
   ]) assert.equal((await call('/me/arrangements', 'POST', a.token, invalid)).status, 400);
 });
+test('编辑安排：整体更新与只改标题', async () => {
+  const a = await user('编辑测试');
+  const created = await (await call('/me/arrangements', 'POST', a.token, sample)).json();
+  const updated = await call(`/me/arrangements/${created.id}`, 'PUT', a.token,
+    { title: '改过的标题', date: '2026-09-24', startTime: '08:30', endTime: '09:30' });
+  assert.equal(updated.status, 200);
+  const whole = await updated.json();
+  assert.equal(whole.title, '改过的标题');
+  assert.deepEqual([whole.date, whole.startTime, whole.endTime], ['2026-09-24', '08:30', '09:30']);
+  assert.equal(whole.id, created.id);
+
+  // 只传标题时，日期与时间必须保持原值，不能被清空。
+  const partial = await (await call(`/me/arrangements/${created.id}`, 'PUT', a.token, { title: '只改标题' })).json();
+  assert.deepEqual([partial.date, partial.startTime, partial.endTime], ['2026-09-24', '08:30', '09:30']);
+  assert.deepEqual((await (await call('/me/arrangements', 'GET', a.token)).json()).length, 1);
+});
+test('编辑安排：越权、不存在与非法入参', async () => {
+  const [a, b] = await Promise.all([user('编辑甲'), user('编辑乙')]);
+  const created = await (await call('/me/arrangements', 'POST', a.token, sample)).json();
+  // 别人的安排一律按"不存在"处理，不泄露是否存在。
+  assert.equal((await call(`/me/arrangements/${created.id}`, 'PUT', b.token, { title: '越权' })).status, 404);
+  assert.equal((await call('/me/arrangements/not-a-uuid', 'PUT', a.token, { title: '不存在' })).status, 404);
+  assert.equal((await call(`/me/arrangements/${created.id}`, 'PUT', a.token, 'not-an-object')).status, 400);
+  for (const invalid of [
+    {},
+    { title: ' ' },
+    { unknown: 1 },
+    { date: '2026-02-30' },
+    { startTime: '25:00' },
+    { endTime: '00:00' },
+  ]) assert.equal((await call(`/me/arrangements/${created.id}`, 'PUT', a.token, invalid)).status, 400);
+  // 被拒绝的编辑不能改动原记录。
+  assert.equal((await (await call('/me/arrangements', 'GET', a.token)).json())[0].title, sample.title);
+});
 test('多用户并发写入不串号', async () => {
   const members = await Promise.all(Array.from({ length: 5 }, (_, i) => user(`并发${i}`)));
   await Promise.all(members.map((member, i) => call('/me/arrangements', 'POST', member.token, { ...sample, title: `安排${i}` })));

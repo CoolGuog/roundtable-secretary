@@ -61,6 +61,29 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
       assert.equal(records.length, 1);
       assert.equal(records[0].id, id);
     });
+    await t.test('编辑安排：按北京时间落库、只改标题不动时间、越权拒绝', async () => {
+      const updated = await call(`/me/arrangements/${id}`, 'PUT', a.token,
+        { title: '改过的日程', date: '2026-10-03', startTime: '00:15', endTime: '01:00' });
+      assert.equal(updated.status, 200);
+      let row = await db.arrangement.findUniqueOrThrow({ where: { id } });
+      assert.equal(row.title, '改过的日程');
+      assert.equal(row.startsAt.toISOString(), '2026-10-02T16:15:00.000Z');
+      assert.equal(row.endsAt.toISOString(), '2026-10-02T17:00:00.000Z');
+
+      const partial = await call(`/me/arrangements/${id}`, 'PUT', a.token, { title: '只改标题' });
+      assert.equal(partial.status, 200);
+      row = await db.arrangement.findUniqueOrThrow({ where: { id } });
+      assert.equal(row.title, '只改标题');
+      assert.equal(row.startsAt.toISOString(), '2026-10-02T16:15:00.000Z');
+
+      // 别人的安排按"不存在"处理；被拒绝的编辑不能改动原记录。
+      assert.equal((await call(`/me/arrangements/${id}`, 'PUT', b.token, { title: '越权' })).status, 404);
+      assert.equal((await call('/me/arrangements/not-a-uuid', 'PUT', a.token, { title: '不存在' })).status, 404);
+      for (const invalid of [{}, { title: ' ' }, { unknown: 1 }, { date: '2026-02-30' }, { startTime: '25:00' }, { endTime: '00:00' }]) {
+        assert.equal((await call(`/me/arrangements/${id}`, 'PUT', a.token, invalid)).status, 400);
+      }
+      assert.equal(await db.arrangement.count({ where: { ownerId: a.user.id } }), 1);
+    });
     await t.test('匿名、伪造会话、越权及无效输入拒绝', async () => {
       assert.equal((await call('/me/arrangements')).status, 401);
       assert.equal((await call('/me/arrangements', 'GET', 'a'.repeat(64))).status, 401);

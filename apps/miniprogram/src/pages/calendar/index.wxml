@@ -1,15 +1,32 @@
 <view class="page">
   <text class="eyebrow">MY CALENDAR</text><view class="title">给时间留个位置。</view>
-  <view class="subtitle">{{mode}} · 当前按设备本地时间记录。</view>
+  <view class="subtitle">{{mode}} · 当前按北京时间（UTC+8）记录。</view>
   <view class="card">
     <view class="card-title">个人安排</view>
     <view wx:if="{{loading}}" class="empty">正在读取…</view>
     <view wx:elif="{{items.length === 0}}" class="empty">还没有安排。<view>从一条虚构的日程开始体验。</view></view>
     <view wx:for="{{items}}" wx:key="id" class="record row">
       <view><view class="record-title">{{item.title}}</view><view class="muted">{{item.date}} · {{item.startTime}}—{{item.endTime}}</view></view>
-      <button class="link-button" data-id="{{item.id}}" bindtap="remove">删除</button>
+      <view class="record-actions">
+        <button class="link-button" data-id="{{item.id}}" bindtap="openEdit">编辑</button>
+        <button class="link-button" data-id="{{item.id}}" bindtap="remove">删除</button>
+      </view>
     </view>
     <button class="secondary" bindtap="add">回到秘书，添加安排</button>
+  </view>
+  <view class="card" wx:if="{{editingId}}">
+    <view class="card-title">修改这条安排</view>
+    <text class="field-label">安排名称</text>
+    <input class="field" value="{{editTitle}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onEditTitle" />
+    <text class="field-label">日期</text>
+    <picker mode="date" value="{{editDate}}" start="2020-01-01" end="2099-12-31" bindchange="onEditDate"><view class="field">{{editDate}}</view></picker>
+    <view class="two-col">
+      <view><text class="field-label">开始</text><picker mode="time" value="{{editStart}}" bindchange="onEditStart"><view class="field">{{editStart}}</view></picker></view>
+      <view><text class="field-label">结束</text><picker mode="time" value="{{editEnd}}" bindchange="onEditEnd"><view class="field">{{editEnd}}</view></picker></view>
+    </view>
+    <view class="muted spaced">按北京时间（UTC+8）记录。不修改的字段会保持原值。</view>
+    <button class="primary" loading="{{saving}}" disabled="{{saving}}" bindtap="submitEdit">保存修改</button>
+    <button class="secondary" disabled="{{saving}}" bindtap="closeEdit">取消</button>
   </view>
   <view class="error" wx:if="{{error}}">{{error}}</view>
 </view>

@@ -1,12 +1,15 @@
 import 'reflect-metadata';
 import {
   BadRequestException, Body, CanActivate, Controller, Delete, ExecutionContext,
-  Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Req,
+  Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Req,
   UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
-import { Arrangement, User, PersonalStore, STORE, validateArrangement, validateName } from './store';
+import {
+  Arrangement, User, PersonalStore, STORE,
+  validateArrangement, validateArrangementPatch, validateName,
+} from './store';
 import { PostgresStore } from './postgres-store';
 
 type AuthRequest = {
@@ -51,6 +54,19 @@ class DemoStore implements PersonalStore {
     records.set(item.id, item);
     return item;
   }
+  update(userId: string, id: string, value: unknown) {
+    const patch = validateArrangementPatch(value);
+    const records = this.arrangements.get(userId)!;
+    const existing = records.get(id);
+    if (!existing) throw new NotFoundException('安排不存在');
+    const merged = validateArrangement({
+      title: existing.title, date: existing.date,
+      startTime: existing.startTime, endTime: existing.endTime, ...patch,
+    });
+    const item: Arrangement = { ...merged, id: existing.id, createdAt: existing.createdAt };
+    records.set(id, item);
+    return item;
+  }
   remove(userId: string, id: string) {
     if (!this.arrangements.get(userId)!.delete(id)) throw new NotFoundException('安排不存在');
   }
@@ -85,6 +101,12 @@ class PersonalController {
   @Get('arrangements') list(@Req() request: AuthRequest) { return this.store.list(request.userId!); }
   @Post('arrangements') create(@Req() request: AuthRequest, @Body() body: unknown) {
     return this.store.create(request.userId!, body);
+  }
+  // 用 PUT 而不是 PATCH：微信小程序的 wx.request 不支持 PATCH 方法。
+  // 语义为"替换这条安排"，也接受只传部分字段——未传的字段保持原值。
+  @Put('arrangements/:id')
+  update(@Req() request: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.store.update(request.userId!, id, body);
   }
   @Delete('arrangements/:id')
   @HttpCode(204)

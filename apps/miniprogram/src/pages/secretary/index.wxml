@@ -20,7 +20,7 @@
       <view><text class="field-label">开始</text><picker mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime}}</view></picker></view>
       <view><text class="field-label">结束</text><picker mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime}}</view></picker></view>
     </view>
-    <view class="muted spaced">使用设备本地时间。当前请只填写虚构的演示安排。</view>
+    <view class="muted spaced">按北京时间（UTC+8）记录。当前请只填写虚构的演示安排。</view>
     <button class="primary" loading="{{saving}}" disabled="{{saving}}" bindtap="save">确认保存</button>
     <button class="secondary" disabled="{{saving}}" bindtap="closeForm">稍后再填</button>
   </view>
