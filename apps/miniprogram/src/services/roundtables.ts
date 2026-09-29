@@ -19,6 +19,25 @@ function validate(input: RoomInput): RoomInput {
   if (!Number.isInteger(input.durationMinutes) || input.durationMinutes < 15 || input.durationMinutes > 240 || input.durationMinutes % 15 || minutes(input.endTime) - minutes(input.startTime) < input.durationMinutes) throw new Error('活动时长须为 15 至 240 分钟、15 的倍数，且不超过每日时间窗口');
   return { ...input, title: input.title.trim(), goal: input.goal.trim() };
 }
+export interface Slot { date: string; startTime: string; endTime: string; key?: string; }
+export interface Availability {
+  slots: Slot[]; durationMinutes: number;
+  window: { dateFrom: string; dateTo: string; startTime: string; endTime: string };
+  coverage: { shared: number; total: number };
+  /** 无解时的原因；有解则为 null */
+  reason: string | null;
+  /** 有解但覆盖不全等附加说明；无则为 null */
+  note: string | null;
+}
+export type Decision = 'PENDING' | 'ACCEPT' | 'REJECT';
+export interface ProposalVote { name: string; decision: Decision; decidedAt: string | null; isMe: boolean; }
+export interface Proposal {
+  id: string; roomId: string; date: string; startTime: string; endTime: string;
+  status: 'OPEN' | 'CONFIRMED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED'; stale: boolean;
+  expiresAt: string; createdAt: string; createdByMe: boolean; votes: ProposalVote[];
+}
+const needsServer = '协商需要后台模式：本机演示只有你一个人，无法计算共同时间';
+
 export async function listRooms(): Promise<Room[]> { return isLocalRoomMode() ? records().reverse() : request('/roundtables', 'GET'); }
 export async function getRoom(id: string): Promise<Room> {
   if (!isLocalRoomMode()) return request(`/roundtables/${encodeURIComponent(id)}`, 'GET');
@@ -34,6 +53,26 @@ export async function createRoom(input: RoomInput): Promise<Room> {
   const room: Room = { ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'OPEN', version: 1, createdAt: new Date().toISOString(), isOwner: true,
     members: [{ id: 'local-self', name: '本机演示用户', role: 'OWNER', isMe: true, shareBusy: false, consentUpdatedAt: null }] };
   all.push(room); wx.setStorageSync(dataKey, all); return room;
+}
+/** 共同可用时间。只返回时段，不含任何成员的日程标题。 */
+export async function loadAvailability(id: string): Promise<Availability> {
+  if (isLocalRoomMode()) throw new Error(needsServer);
+  return request<Availability>(`/roundtables/${encodeURIComponent(id)}/availability`, 'GET');
+}
+/** 当前方案；没有方案时后台返回 204，这里统一收敛为 null */
+export async function loadProposal(id: string): Promise<Proposal | null> {
+  if (isLocalRoomMode()) throw new Error(needsServer);
+  const data = await request<Proposal | ''>(`/roundtables/${encodeURIComponent(id)}/proposal`, 'GET');
+  return data && typeof data === 'object' ? data : null;
+}
+export async function proposeSlot(id: string, slot: Slot): Promise<Proposal> {
+  if (isLocalRoomMode()) throw new Error(needsServer);
+  const { date, startTime, endTime } = slot;
+  return request<Proposal>(`/roundtables/${encodeURIComponent(id)}/proposals`, 'POST', { date, startTime, endTime });
+}
+export async function decideProposal(id: string, proposalId: string, decision: 'ACCEPT' | 'REJECT'): Promise<Proposal> {
+  if (isLocalRoomMode()) throw new Error(needsServer);
+  return request<Proposal>(`/roundtables/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}`, 'PUT', { decision });
 }
 export async function joinRoom(code: string): Promise<Room> {
   if (isLocalRoomMode()) throw new Error('多人加入需要后台模式，本机演示只支持创建与查看');

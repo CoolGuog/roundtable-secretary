@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import {
   BadRequestException, Body, CanActivate, Controller, Delete, ExecutionContext,
-  Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Req,
+  Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Req, Res,
   UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -12,6 +12,7 @@ import {
 } from './store';
 import { PostgresStore } from './postgres-store';
 import { PersonalMemory, validateMemory } from './memory';
+import { MemoryNegotiation } from './negotiation';
 import { MemoryRooms } from './rooms';
 import { AUTH, AuthMode, AuthRuntime, createWechatExchange, validateLoginCode, WechatExchange } from './wechat-login';
 
@@ -21,8 +22,14 @@ type AuthRequest = {
 
 @Injectable()
 class DemoStore implements PersonalStore {
-  readonly rooms = new MemoryRooms(id => this.users.get(id)!.name);
   readonly persistence = 'memory' as const;
+  readonly rooms = new MemoryRooms(id => this.users.get(id)!.name);
+  readonly negotiation = new MemoryNegotiation({
+    room: (userId, roomId) => this.rooms.core(userId, roomId),
+    arrangements: userId => this.list(userId),
+    createArrangement: (userId, value) => this.create(userId, value),
+    name: userId => this.users.get(userId)!.name,
+  });
   private readonly users = new Map<string, User>();
   private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
   private readonly arrangements = new Map<string, Map<string, Arrangement>>();
@@ -178,6 +185,26 @@ class RoundtableController {
   @Post(':id/invitation') rotate(@Req() req: AuthRequest, @Param('id') id: string) { return this.store.rooms.rotate(req.userId!, id); }
   @Delete(':id/members/:memberId') remove(@Req() req: AuthRequest, @Param('id') id: string, @Param('memberId') memberId: string) { return this.store.rooms.remove(req.userId!, id, memberId); }
   @Post(':id/close') close(@Req() req: AuthRequest, @Param('id') id: string) { return this.store.rooms.close(req.userId!, id); }
+
+  // 第 15 步：共同可用时间。只返回时段，不返回任何成员的安排标题。
+  @Get(':id/availability')
+  availability(@Req() req: AuthRequest, @Param('id') id: string) { return this.store.negotiation.availability(req.userId!, id); }
+  // 第 16 步：提出方案 → 全员确认 → 写入各自日程。
+  @Get(':id/proposal')
+  async currentProposal(@Req() req: AuthRequest, @Param('id') id: string, @Res({ passthrough: true }) response: { status: (code: number) => void }) {
+    const proposal = await this.store.negotiation.currentProposal(req.userId!, id);
+    // 没有方案时给 204 而不是空响应体，前端不必猜「空字符串」是什么意思。
+    if (!proposal) { response.status(204); return; }
+    return proposal;
+  }
+  @Post(':id/proposals')
+  createProposal(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.store.negotiation.createProposal(req.userId!, id, body);
+  }
+  @Put(':id/proposals/:proposalId')
+  decide(@Req() req: AuthRequest, @Param('id') id: string, @Param('proposalId') proposalId: string, @Body() body: unknown) {
+    return this.store.negotiation.decide(req.userId!, id, proposalId, body);
+  }
 }
 
 export async function createApp(options: {

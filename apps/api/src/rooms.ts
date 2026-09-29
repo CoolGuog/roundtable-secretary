@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { inputObject, validateArrangement } from './store';
+import type { NegotiationRoom } from './negotiation';
 
 export type RoomInput = { title: string; goal: string; dateFrom: string; dateTo: string; startTime: string; endTime: string; durationMinutes: number };
 export type RoomMember = { id: string; name: string; role: 'OWNER' | 'MEMBER'; isMe: boolean; shareBusy: boolean; consentUpdatedAt: string | null };
@@ -64,6 +65,13 @@ export class MemoryRooms implements RoomStore {
   }
   list(userId: string) { return [...this.rooms.values()].filter(room => room.members.some(member => member.userId === userId)).reverse().map(room => this.dto(room, userId)); }
   get(userId: string, id: string) { return this.dto(this.accessible(userId, id), userId); }
+  /** 协商模块内部使用：带成员 userId 的房间视图，不经过 HTTP 输出 */
+  core(userId: string, id: string): NegotiationRoom {
+    const room = this.accessible(userId, id);
+    return { id: room.id, status: room.status, version: room.version, title: room.title,
+      dateFrom: room.dateFrom, dateTo: room.dateTo, startTime: room.startTime, endTime: room.endTime,
+      durationMinutes: room.durationMinutes, members: room.members.map(member => ({ userId: member.userId, shareBusy: member.shareBusy })) };
+  }
   create(userId: string, value: unknown) {
     const input = validateRoom(value); this.quota(userId);
     const room: StoredRoom = { ...input, id: randomUUID(), ownerId: userId, status: 'OPEN', version: 1, createdAt: new Date().toISOString(), ...newInvitation(),

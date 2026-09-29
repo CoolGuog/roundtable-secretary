@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { createApp } from '../apps/api/dist/app.js';
 import { memoryContract, sampleMemory } from './memory-contract.mjs';
 import { roomContract, sampleRoom } from './room-contract.mjs';
+import { negotiationContract } from './negotiation-contract.mjs';
 
 test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.env.RUN_POSTGRES_TESTS }, async t => {
   assert.ok(process.env.DATABASE_URL, '需要本机 DATABASE_URL');
@@ -46,6 +47,7 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     await start();
     await memoryContract(t, call, user);
     await roomContract(t, call, user);
+    await negotiationContract(t, call, user);
     await t.test('圆桌并发加入不超员，重复加入不重复创建，重启保留，邀请过期失效', async () => {
       const a = await user('并发发起'), b = await user('并发伙伴');
       const room = await (await call('/roundtables', 'POST', a.token, sampleRoom)).json();

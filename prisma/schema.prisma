@@ -84,6 +84,8 @@ model User {
   wechatSessions WechatSession[]
   ownedRoundtables Roundtable[]
   roundtableMemberships RoundtableMember[]
+  proposalVotes ProposalVote[]
+  createdProposals Proposal[] @relation("proposal_creator")
 
   @@unique([wxAppId, wxOpenId])
   @@map("users")
@@ -93,6 +95,29 @@ enum RoundtableStatus {
   OPEN
   CLOSED
   @@map("roundtable_status")
+}
+
+/// 协商方案的状态。一个圆桌同时最多一个 OPEN 方案，
+/// 成员变动或授权变化会让旧方案失效（stale），防止基于过期信息写入日程。
+enum ProposalStatus {
+  /// 待全员确认
+  OPEN
+  /// 全员接受并已写入各自日程
+  CONFIRMED
+  /// 有人拒绝，需重新协商
+  REJECTED
+  /// 超过有效期或圆桌成员已变化，不能继续确认
+  EXPIRED
+  /// 被更新的方案取代
+  CANCELLED
+  @@map("proposal_status")
+}
+
+enum ProposalDecision {
+  PENDING
+  ACCEPT
+  REJECT
+  @@map("proposal_decision")
 }
 
 model Roundtable {
@@ -113,8 +138,53 @@ model Roundtable {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   members RoundtableMember[]
+  proposals Proposal[]
   @@index([ownerId])
   @@map("roundtables")
+}
+
+/// 一次协商提出的候选方案。只存时间，不存任何成员的安排标题或原因。
+model Proposal {
+  id String @id @default(uuid()) @db.Uuid
+  roomId String @map("room_id") @db.Uuid
+
+  /// 候选时段（北京时间，YYYY-MM-DD + HH:mm）
+  date String @db.VarChar(10)
+  startTime String @map("start_time") @db.VarChar(5)
+  endTime String @map("end_time") @db.VarChar(5)
+
+  /// 生成方案时的圆桌版本。圆桌 version 变化即代表成员或授权已变，方案作废。
+  roomVersion Int @map("room_version")
+  status ProposalStatus @default(OPEN)
+  createdById String @map("created_by") @db.Uuid
+  createdBy User @relation("proposal_creator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  /// 写入日程的时间点，用于确认幂等：已写入的方案不会重复写
+  appliedAt DateTime? @map("applied_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  room Roundtable @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  votes ProposalVote[]
+  @@index([roomId, status])
+  @@map("proposals")
+}
+
+/// 每个成员对方案的确认结果。一人一票，可改票（方案仍 OPEN 时）。
+model ProposalVote {
+  id String @id @default(uuid()) @db.Uuid
+  proposalId String @map("proposal_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  decision ProposalDecision @default(PENDING)
+  decidedAt DateTime? @map("decided_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([proposalId, userId])
+  @@index([userId])
+  @@map("proposal_votes")
 }
 
 model RoundtableMember {

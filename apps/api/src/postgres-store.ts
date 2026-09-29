@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma, PrismaClient, Arrangement as DbArrangement, PersonalMemory as DbMemory } from '@prisma/client';
 import { PersonalMemory, validateMemory } from './memory';
+import { PostgresNegotiation } from './postgres-negotiation';
 import { PostgresRooms } from './postgres-rooms';
 import { createHash, randomBytes } from 'node:crypto';
 import { Arrangement, PersonalStore, validateArrangement, validateArrangementPatch, validateName } from './store';
@@ -21,8 +22,10 @@ function toDto(item: DbArrangement): Arrangement {
 export class PostgresStore implements PersonalStore {
   readonly persistence = 'postgres' as const;
   readonly rooms: PostgresRooms;
+  readonly negotiation: PostgresNegotiation;
   private constructor(private readonly db: PrismaClient, private readonly wechatAppId?: string) {
     this.rooms = new PostgresRooms(db, operation => this.transaction(operation), wechatAppId);
+    this.negotiation = new PostgresNegotiation(db, operation => this.transaction(operation), wechatAppId);
   }
   static async connect(url: string, wechatAppId?: string) {
     const db = new PrismaClient({ datasources: { db: { url } }, log: [] });

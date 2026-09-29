@@ -4,3 +4,9 @@
 .invite-code { font-family: monospace; font-size: 31rpx; letter-spacing: 1rpx; padding: 24rpx 0; overflow-wrap: anywhere; }
 .member-name { flex: 1; min-width: 0; }
 .refresh-room { margin: 0 0 24rpx; }
+.find-time { margin: 24rpx 0 0; }
+.slot-text { flex: 1; min-width: 0; font-family: monospace; }
+.pick-slot { flex-shrink: 0; }
+.decisions { margin-top: 24rpx; }
+.accept { margin: 0; flex: 1; }
+.reject { margin: 0; flex-shrink: 0; }

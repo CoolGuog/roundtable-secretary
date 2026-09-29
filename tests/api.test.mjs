@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../apps/api/dist/app.js';
 import { memoryContract, sampleMemory } from './memory-contract.mjs';
 import { roomContract, sampleRoom } from './room-contract.mjs';
+import { negotiationContract } from './negotiation-contract.mjs';
 
 let app, base;
 before(async () => {
@@ -27,6 +28,7 @@ const sample = { title: '演示课程', date: '2026-09-23', startTime: '19:00', 
 
 test('内存演示记忆接口', t => memoryContract(t, call, user));
 test('内存演示圆桌接口', t => roomContract(t, call, user));
+test('内存演示协商与确认接口', t => negotiationContract(t, call, user));
 test('圆桌最多参与 20 个进行中的房间，关闭后释放额度', async () => {
   const a = await user('圆桌配额');
   let id;
