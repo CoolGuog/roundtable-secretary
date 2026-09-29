@@ -10,6 +10,18 @@
     <button class="primary" bindtap="openForm">＋ 记一条个人安排</button>
     <view class="saved row" bindtap="openCalendar"><text>已保存 {{count}} 条安排</text><text>查看日程 →</text></view>
   </view>
+  <view class="card">
+    <view class="card-title">用一句话说说</view>
+    <textarea class="field area" maxlength="200" placeholder="例如：明天下午三点到四点和导师开会" bindinput="onUtterance" />
+    <button class="primary" loading="{{drafting}}" disabled="{{drafting}}" bindtap="generate">让秘书整理成草稿</button>
+    <view class="muted spaced">只生成待确认的草稿，确认后才会写入你的日程。</view>
+  </view>
+  <view class="card" wx:if="{{draft}}">
+    <view class="card-title">草稿 · {{draft.model}} · {{draft.confidence}}</view>
+    <view class="muted" wx:for="{{draft.reasons}}" wx:key="*this">· {{item}}</view>
+    <view class="muted spaced" wx:if="{{draftMemoryNote}}">{{draftMemoryNote}}</view>
+    <view class="muted spaced">{{draft.message}}</view>
+  </view>
   <view class="card" wx:if="{{showForm}}">
     <view class="card-title">确认这条安排</view>
     <text class="field-label">安排名称</text>

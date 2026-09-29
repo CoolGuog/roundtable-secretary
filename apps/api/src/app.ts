@@ -14,6 +14,9 @@ import { PostgresStore } from './postgres-store';
 import { PersonalMemory, validateMemory } from './memory';
 import { MemoryNegotiation } from './negotiation';
 import { MemoryRooms } from './rooms';
+import {
+  SECRETARY, SecretaryModel, SecretaryMode, SecretaryService, HttpModel, validateSecretaryText,
+} from './secretary';
 import { AUTH, AuthMode, AuthRuntime, createWechatExchange, validateLoginCode, WechatExchange } from './wechat-login';
 
 type AuthRequest = {
@@ -124,9 +127,17 @@ class SessionGuard implements CanActivate {
 
 @Controller()
 class PublicController {
-  constructor(@Inject(STORE) private readonly store: PersonalStore, @Inject(AUTH) private readonly auth: AuthRuntime) {}
+  constructor(
+    @Inject(STORE) private readonly store: PersonalStore,
+    @Inject(AUTH) private readonly auth: AuthRuntime,
+    @Inject(SECRETARY) private readonly secretary: SecretaryService,
+  ) {}
   @Get('health') health() {
-    return { status: 'ok', mode: this.auth.mode === 'wechat' ? 'local-wechat' : 'local-demo', acceptsModelKeys: false, persistence: this.store.persistence };
+    return {
+      status: 'ok', mode: this.auth.mode === 'wechat' ? 'local-wechat' : 'local-demo',
+      // 接口永不接收模型密钥，密钥只从本机 .env 读取
+      acceptsModelKeys: false, persistence: this.store.persistence, secretary: this.secretary.mode,
+    };
   }
   @Post('dev/sessions') session(@Body() body: unknown) {
     if (this.auth.mode !== 'demo') throw new NotFoundException();
@@ -141,7 +152,7 @@ class PublicController {
 @Controller('me')
 @UseGuards(SessionGuard)
 class PersonalController {
-  constructor(@Inject(STORE) private readonly store: PersonalStore) {}
+  constructor(@Inject(STORE) private readonly store: PersonalStore, @Inject(SECRETARY) private readonly secretary: SecretaryService) {}
   @Get() profile(@Req() request: AuthRequest) { return this.store.profile(request.userId!); }
   @Delete('session')
   @HttpCode(204)
@@ -169,6 +180,12 @@ class PersonalController {
   @Delete('memories/:id')
   @HttpCode(204)
   removeMemory(@Req() request: AuthRequest, @Param('id') id: string) { return this.store.removeMemory(request.userId!, id); }
+  // 第 13 步：把一句话整理成「待确认」草稿。这里只返回草稿，写入日程要走上面的保存接口。
+  @Post('secretary/draft')
+  async draft(@Req() request: AuthRequest, @Body() body: unknown) {
+    const text = validateSecretaryText((body as { text?: unknown } | null)?.text);
+    return this.secretary.draft(text, await this.store.listMemories(request.userId!));
+  }
 }
 
 @Controller('roundtables')
@@ -210,6 +227,7 @@ class RoundtableController {
 export async function createApp(options: {
   storage?: 'memory' | 'postgres'; databaseUrl?: string; authMode?: AuthMode;
   wechatAppId?: string; wechatSecret?: string; wechatExchange?: WechatExchange;
+  secretary?: { mode?: SecretaryMode; model?: SecretaryModel | null };
 } = {}) {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('此阶段仅支持本机演示，禁止作为生产后台启动');
@@ -231,7 +249,23 @@ export async function createApp(options: {
     const exchange = options.wechatExchange ?? createWechatExchange(appId!, secret!);
     auth.login = async code => store.createWechatSession((await exchange(code)).openId);
   }
-  @Module({ controllers: [PublicController, PersonalController, RoundtableController], providers: [{ provide: STORE, useValue: store }, { provide: AUTH, useValue: auth }, SessionGuard] })
+  // 模型密钥只从本机 .env 读取：接口不接受密钥，也不把密钥写入数据库或日志。
+  const secretaryMode = (options.secretary?.mode ?? process.env.SECRETARY_MODE ?? 'off') as SecretaryMode;
+  if (!['off', 'stub', 'http'].includes(secretaryMode)) throw new Error('SECRETARY_MODE 仅支持 off、stub 或 http');
+  let secretaryModel = options.secretary?.model ?? null;
+  if (!secretaryModel && secretaryMode === 'http') {
+    const apiKey = process.env.SECRETARY_API_KEY, modelName = process.env.SECRETARY_MODEL;
+    if (!apiKey || !modelName) throw new Error('SECRETARY_MODE=http 必须在本机 .env 配置 SECRETARY_API_KEY 与 SECRETARY_MODEL');
+    secretaryModel = new HttpModel({ apiKey, model: modelName, baseUrl: process.env.SECRETARY_BASE_URL ?? 'https://api.openai.com/v1' });
+  }
+  const secretary = new SecretaryService(secretaryMode, secretaryModel ?? undefined);
+  @Module({
+    controllers: [PublicController, PersonalController, RoundtableController],
+    providers: [
+      { provide: STORE, useValue: store }, { provide: AUTH, useValue: auth },
+      { provide: SECRETARY, useValue: secretary }, SessionGuard,
+    ],
+  })
   class AppModule {}
   const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
   app.enableShutdownHooks();

@@ -9,6 +9,13 @@ let sessionPromise: Promise<string> | undefined;
 let sessionEpoch = 0;
 class LoginExpired extends Error {}
 
+export type DraftStatus = 'READY' | 'NEEDS_INPUT' | 'UNAVAILABLE';
+export interface ScheduleDraft {
+  status: DraftStatus; title: string | null; date: string | null; startTime: string | null; endTime: string | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW'; missing: string[]; reasons: string[]; usedMemories: string[];
+  model: string; message: string;
+}
+
 export function modeLabel() { return config.mode === 'local' ? '本机演示 · 未联网' : config.authMode === 'wechat' ? '本地后台 · 微信登录' : '本地后台 · 演示会话'; }
 export function loginEnabled() { return config.mode === 'api' && config.authMode === 'wechat'; }
 export function hasLogin() { return Boolean(wx.getStorageSync(sessionKey())); }
@@ -95,6 +102,16 @@ function raw<T>(path: string, method: Method, data?: object, token?: string): Pr
       fail() { reject(new Error('无法连接本地后台，请确认服务已启动，或切回本机演示模式。')); },
     });
   });
+}
+
+// 只生成草稿，不写入。写入必须走 saveArrangement，也就是用户点一次"确认保存"。
+export async function draftFromText(text: string): Promise<ScheduleDraft> {
+  const value = text.trim();
+  if (!value) throw new Error('请先说一句你想安排的事');
+  if (value.length > 200) throw new Error('描述请控制在 200 字以内');
+  // 本机演示模式不联网，也没有模型，不去假装自己听得懂。
+  if (config.mode !== 'api') throw new Error('本机演示未连接模型，请切换本地后台模式后再试');
+  return request<ScheduleDraft>('/me/secretary/draft', 'POST', { text: value });
 }
 
 export async function listArrangements(): Promise<Arrangement[]> {

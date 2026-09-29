@@ -14,6 +14,44 @@ function client(mode = 'local') {
   });
   return { api: exports, calls, storage };
 }
+function secretaryClient(mode = 'local') {
+  const storage = new Map(), calls = [], exports = {};
+  const source = fs.readFileSync('apps/miniprogram/src/services/secretary.ts', 'utf8');
+  const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const token = 'a'.repeat(64);
+  const draft = { status: 'READY', title: '和导师开会', date: '2026-10-01', startTime: '15:00', endTime: '16:00',
+    confidence: 'HIGH', missing: [], reasons: [], usedMemories: [], model: 'stub', message: '已生成草稿，确认后才会写入你的日程' };
+  vm.runInNewContext(js, { exports,
+    wx: {
+      getStorageSync: key => storage.get(key),
+      setStorageSync: (key, value) => storage.set(key, value),
+      removeStorageSync: key => storage.delete(key),
+      request(options) {
+        calls.push([options.method, options.url, options.data]);
+        options.success(options.url.includes('/dev/sessions') ? { statusCode: 201, data: { token } } : { statusCode: 200, data: draft });
+      },
+    },
+    require: name => name === './config' ? { config: { mode, authMode: 'demo', apiBase: 'http://127.0.0.1:3000' } } : {},
+  });
+  return { api: exports, calls };
+}
+test('秘书草稿走约定路由，本机演示不假装听懂', async () => {
+  const local = secretaryClient();
+  await assert.rejects(local.api.draftFromText('明天下午三点开会'), /本机演示未连接模型/);
+  await assert.rejects(local.api.draftFromText('   '), /请先说一句/);
+  await assert.rejects(local.api.draftFromText('安'.repeat(201)), /200 字/);
+  assert.equal(local.calls.length, 0, '本机演示模式不应该发起任何请求');
+
+  const c = secretaryClient('api');
+  const result = await c.api.draftFromText('明天下午三点开会');
+  assert.equal(result.status, 'READY');
+  const [method, url, data] = c.calls[c.calls.length - 1];
+  assert.equal(method, 'POST');
+  assert.ok(url.endsWith('/me/secretary/draft'), url);
+  // vm 沙箱里的对象原型不同源，逐字段比较而不是整对象深比较
+  assert.equal(data.text, '明天下午三点开会');
+  assert.deepEqual(Object.keys(data), ['text']);
+});
 test('本机圆桌保存、授权、关闭；不伪造邀请码或多人加入', async () => {
   const { api, storage } = client();
   const room = await api.createRoom(sampleRoom);

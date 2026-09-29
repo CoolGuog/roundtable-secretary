@@ -7,6 +7,8 @@ import { createApp } from '../apps/api/dist/app.js';
 import { memoryContract, sampleMemory } from './memory-contract.mjs';
 import { roomContract, sampleRoom } from './room-contract.mjs';
 import { negotiationContract } from './negotiation-contract.mjs';
+import { secretaryContract } from './secretary-contract.mjs';
+import { StubModel } from '../apps/api/dist/secretary.js';
 
 test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.env.RUN_POSTGRES_TESTS }, async t => {
   assert.ok(process.env.DATABASE_URL, '需要本机 DATABASE_URL');
@@ -20,7 +22,8 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
   let app, base;
   const start = async (authMode = 'demo', wechatAppId = 'wx0123456789abcdef') => {
     app = await createApp({ storage: 'postgres', databaseUrl, authMode, wechatAppId,
-      wechatExchange: async code => ({ openId: code === 'code-B' ? 'openid-B' : 'openid-A' }) });
+      wechatExchange: async code => ({ openId: code === 'code-B' ? 'openid-B' : 'openid-A' }),
+      secretary: { mode: 'stub', model: new StubModel() } });
     await app.listen(0, '127.0.0.1');
     base = await app.getUrl();
   };
@@ -48,6 +51,7 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     await memoryContract(t, call, user);
     await roomContract(t, call, user);
     await negotiationContract(t, call, user);
+    await secretaryContract(t, call, user);
     await t.test('圆桌并发加入不超员，重复加入不重复创建，重启保留，邀请过期失效', async () => {
       const a = await user('并发发起'), b = await user('并发伙伴');
       const room = await (await call('/roundtables', 'POST', a.token, sampleRoom)).json();
