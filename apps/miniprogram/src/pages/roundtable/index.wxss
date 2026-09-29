@@ -1,0 +1,6 @@
+.eyebrow { display: block; margin-top: 30rpx; }
+.title, .goal, .member-name { overflow-wrap: anywhere; }
+.goal { white-space: pre-wrap; line-height: 1.8; }
+.invite-code { font-family: monospace; font-size: 31rpx; letter-spacing: 1rpx; padding: 24rpx 0; overflow-wrap: anywhere; }
+.member-name { flex: 1; min-width: 0; }
+.refresh-room { margin: 0 0 24rpx; }

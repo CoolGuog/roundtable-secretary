@@ -1,0 +1,18 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty">正在读取圆桌…</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button class="secondary refresh-room" bindtap="reload" disabled="{{busy || loading}}">刷新圆桌</button>
+  <block wx:if="{{room}}">
+    <text class="eyebrow">AROUND THE TABLE</text><view class="title">{{room.title}}</view>
+    <text class="badge">{{room.status === 'OPEN' ? '进行中' : '已关闭'}}</text>
+    <view class="card"><view class="card-title">活动目标</view><view class="goal spaced">{{room.goal}}</view><view class="subtitle spaced">{{room.dateFrom}} 至 {{room.dateTo}}</view><view class="muted">每天 {{room.startTime}} — {{room.endTime}}（北京时间）<view>活动时长 {{room.durationMinutes}} 分钟</view></view></view>
+    <view wx:if="{{room.inviteCode}}" class="card"><view class="card-title">邀请伙伴</view><view class="invite-code">{{room.inviteCode}}</view><view class="muted">{{expiresLabel}} 前有效（北京时间）<view>仅分享给你希望加入的伙伴。</view></view><button class="secondary copy-code" bindtap="copyCode" disabled="{{busy}}">复制邀请码</button><button class="link-button rotate-code" bindtap="rotate" disabled="{{busy}}">更新邀请码</button></view>
+    <view class="card"><view class="row"><view class="card-title">圆桌成员</view><text class="badge">{{room.members.length}} / 3 人</text></view>
+      <view wx:for="{{room.members}}" wx:key="id" class="record"><view class="row"><view class="member-name">{{item.name}}{{item.isMe ? '（我）' : ''}}<view class="muted">{{item.role === 'OWNER' ? '发起人' : '成员'}} · {{item.shareBusy ? '已授权本次忙闲' : '未授权忙闲'}}</view></view><button wx:if="{{room.isOwner && !item.isMe && room.status === 'OPEN'}}" class="link-button remove-member" data-id="{{item.id}}" bindtap="remove" disabled="{{busy}}">移除</button></view></view>
+    </view>
+    <view wx:if="{{room.status === 'OPEN'}}" class="card"><view class="card-title">我的本次授权</view><view class="subtitle spaced">授权范围仅为上述日期与每天时间窗口的忙闲信息，不包含日程标题、原因或个人记忆。可随时撤回。</view><view class="notice">当前只保存授权选择，尚未读取日程或开始协商。</view><button class="secondary consent-button" bindtap="consent" disabled="{{busy || loading}}">{{shareBusy ? '撤回本次忙闲授权' : '授权本次忙闲信息'}}</button></view>
+    <view wx:if="{{local}}" class="notice">本机演示不会邀请其他人，也不会交换信息。</view>
+    <button wx:if="{{room.isOwner && room.status === 'OPEN'}}" class="secondary close-room" bindtap="closeRoom" disabled="{{busy || loading}}">关闭圆桌</button>
+    <button wx:if="{{!room.isOwner}}" class="secondary leave-room" bindtap="leave" disabled="{{busy || loading}}">退出圆桌</button>
+  </block>
+</view>

@@ -4,6 +4,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { createApp } from '../apps/api/dist/app.js';
+import { memoryContract, sampleMemory } from './memory-contract.mjs';
+import { roomContract, sampleRoom } from './room-contract.mjs';
 
 test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.env.RUN_POSTGRES_TESTS }, async t => {
   assert.ok(process.env.DATABASE_URL, '需要本机 DATABASE_URL');
@@ -15,8 +17,9 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
   const databaseUrl = url.toString();
   const db = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   let app, base;
-  const start = async () => {
-    app = await createApp({ storage: 'postgres', databaseUrl });
+  const start = async (authMode = 'demo', wechatAppId = 'wx0123456789abcdef') => {
+    app = await createApp({ storage: 'postgres', databaseUrl, authMode, wechatAppId,
+      wechatExchange: async code => ({ openId: code === 'code-B' ? 'openid-B' : 'openid-A' }) });
     await app.listen(0, '127.0.0.1');
     base = await app.getUrl();
   };
@@ -36,7 +39,59 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     });
     // 不输出迁移日志，避免失败诊断意外包含连接信息。
     assert.equal(migration.status, 0, '隔离测试 schema 迁移失败');
+    const drift = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-schema-datasource', 'prisma/schema.prisma', '--to-schema-datamodel', 'prisma/schema.prisma', '--exit-code'], {
+      env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: 'utf8', timeout: 60_000,
+    });
+    assert.equal(drift.status, 0, '迁移后的数据库结构与 Prisma 模型不一致');
     await start();
+    await memoryContract(t, call, user);
+    await roomContract(t, call, user);
+    await t.test('圆桌并发加入不超员，重复加入不重复创建，重启保留，邀请过期失效', async () => {
+      const a = await user('并发发起'), b = await user('并发伙伴');
+      const room = await (await call('/roundtables', 'POST', a.token, sampleRoom)).json();
+      const same = await Promise.all(Array.from({ length: 3 }, () => call('/roundtables/join', 'POST', b.token, { code: room.inviteCode })));
+      assert.ok(same.every(response => response.status === 201));
+      const others = await Promise.all([user('候选甲'), user('候选乙'), user('候选丙')]);
+      const joined = await Promise.all(others.map(member => call('/roundtables/join', 'POST', member.token, { code: room.inviteCode })));
+      assert.equal(joined.filter(response => response.status === 201).length, 1);
+      assert.ok(joined.every(response => [201, 400].includes(response.status)));
+      assert.equal(await db.roundtableMember.count({ where: { roomId: room.id } }), 3);
+      await app.close(); app = undefined; await start();
+      assert.equal((await (await call(`/roundtables/${room.id}`, 'GET', a.token)).json()).members.length, 3);
+      await db.roundtable.update({ where: { id: room.id }, data: { inviteExpiresAt: new Date(0) } });
+      assert.equal((await call('/roundtables/join', 'POST', b.token, { code: room.inviteCode })).status, 404);
+    });
+    await t.test('圆桌并发创建不突破 20 个活跃房间', async () => {
+      const a = await user('数据库圆桌配额');
+      for (let i = 0; i < 19; i++) assert.equal((await call('/roundtables', 'POST', a.token, sampleRoom)).status, 201);
+      const responses = await Promise.all(Array.from({ length: 3 }, () => call('/roundtables', 'POST', a.token, sampleRoom)));
+      assert.equal(responses.filter(response => response.status === 201).length, 1);
+      assert.ok(responses.every(response => [201, 400].includes(response.status)));
+      assert.equal(await db.roundtable.count({ where: { ownerId: a.user.id, status: 'OPEN' } }), 20);
+    });
+    await t.test('记忆跨重启保留，编辑秘书来源后转为用户录入并清除内部引用', async () => {
+      const m = await user('记忆重启');
+      const item = await (await call('/me/memories', 'POST', m.token, sampleMemory)).json();
+      await db.personalMemory.update({ where: { id: item.id }, data: { source: 'SECRETARY', sourceRef: 'private-test-ref' } });
+      await app.close(); app = undefined;
+      await start();
+      const records = await (await call('/me/memories', 'GET', m.token)).json();
+      assert.equal(records[0].id, item.id);
+      assert.equal(records[0].source, 'SECRETARY');
+      assert.equal('sourceRef' in records[0], false);
+      assert.equal((await call(`/me/memories/${item.id}`, 'PUT', m.token, sampleMemory)).status, 200);
+      const row = await db.personalMemory.findUniqueOrThrow({ where: { id: item.id } });
+      assert.equal(row.source, 'USER_INPUT');
+      assert.equal(row.sourceRef, null);
+    });
+    await t.test('记忆并发新增不会突破单用户 100 条配额', async () => {
+      const m = await user('记忆并发');
+      await db.personalMemory.createMany({ data: Array.from({ length: 99 }, () => ({ userId: m.user.id, ...sampleMemory })) });
+      const responses = await Promise.all(Array.from({ length: 4 }, () => call('/me/memories', 'POST', m.token, sampleMemory)));
+      assert.equal(responses.filter(response => response.status === 201).length, 1);
+      assert.ok(responses.every(response => [201, 400].includes(response.status)));
+      assert.equal(await db.personalMemory.count({ where: { userId: m.user.id } }), 100);
+    });
     const a = await user('甲');
     const b = await user('乙');
     let id;
@@ -111,6 +166,75 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
       await db.demoSession.updateMany({ where: { userId: a.user.id }, data: { expiresAt: new Date(0) } });
       assert.equal((await call('/me/arrangements', 'GET', a.token)).status, 401);
       assert.equal(await db.arrangement.count({ where: { ownerId: a.user.id } }), 100);
+    });
+    await app.close(); app = undefined;
+    await start('wechat');
+    const login = async code => {
+      const response = await call('/auth/wechat', 'POST', undefined, { code });
+      assert.equal(response.status, 201);
+      const session = await response.json();
+      assert.deepEqual(Object.keys(session.user).sort(), ['id', 'name', 'secretaryName']);
+      assert.equal(session.mode, 'wechat');
+      assert.ok(!JSON.stringify(session).includes('openid'));
+      return session;
+    };
+    const wa = await login('code-A');
+    const wb = await login('code-B');
+    let wechatRecord;
+    let wechatMemory;
+    let wechatRoom;
+    await t.test('微信模式关闭演示入口，拒绝演示令牌与伪造身份', async () => {
+      assert.equal((await call('/dev/sessions', 'POST', undefined, { name: 'test' })).status, 404);
+      assert.equal((await call('/me', 'GET', b.token)).status, 401);
+      assert.equal((await call('/auth/wechat', 'POST', undefined, { code: 'code-A', openid: 'victim' })).status, 400);
+      const created = await call('/me/arrangements', 'POST', wa.token, sample);
+      assert.equal(created.status, 201);
+      wechatRecord = await created.json();
+      const memoryResponse = await call('/me/memories', 'POST', wa.token, sampleMemory);
+      assert.equal(memoryResponse.status, 201);
+      wechatMemory = await memoryResponse.json();
+      wechatRoom = await (await call('/roundtables', 'POST', wa.token, sampleRoom)).json();
+      assert.equal((await call('/roundtables/join', 'POST', wb.token, { code: wechatRoom.inviteCode })).status, 201);
+      assert.deepEqual(await (await call('/me/memories', 'GET', wb.token)).json(), []);
+      assert.equal((await call(`/me/memories/${wechatMemory.id}`, 'PUT', wb.token, sampleMemory)).status, 404);
+      assert.equal((await call(`/me/memories/${wechatMemory.id}`, 'DELETE', wb.token)).status, 404);
+      assert.deepEqual(await (await call('/me/arrangements', 'GET', wb.token)).json(), []);
+      assert.equal((await call(`/me/arrangements/${wechatRecord.id}`, 'PUT', wb.token, { title: '越权' })).status, 404);
+      assert.equal((await call(`/me/arrangements/${wechatRecord.id}`, 'DELETE', wb.token)).status, 404);
+    });
+    await t.test('微信用户跨重启及重新登录回到同一账号，过期与退出令牌失效', async () => {
+      await app.close(); app = undefined;
+      await start('wechat');
+      assert.equal((await call('/me', 'GET', wa.token)).status, 200);
+      await db.wechatSession.updateMany({ where: { userId: wa.user.id }, data: { expiresAt: new Date(0) } });
+      assert.equal((await call('/me', 'GET', wa.token)).status, 401);
+      const renewed = await login('code-A-new');
+      assert.equal(renewed.user.id, wa.user.id);
+      assert.equal((await (await call(`/roundtables/${wechatRoom.id}`, 'GET', renewed.token)).json()).members.length, 2);
+      assert.notEqual(renewed.token, wa.token);
+      assert.equal((await (await call('/me/arrangements', 'GET', renewed.token)).json())[0].id, wechatRecord.id);
+      assert.equal((await (await call('/me/memories', 'GET', renewed.token)).json())[0].id, wechatMemory.id);
+      assert.equal((await call('/me/session', 'DELETE', renewed.token)).status, 204);
+      assert.equal((await call('/me', 'GET', renewed.token)).status, 401);
+      assert.equal(await db.arrangement.count({ where: { ownerId: wa.user.id } }), 1);
+    });
+    await t.test('并发登录不创建重复用户，会话数量有上限', async () => {
+      const sessions = await Promise.all([login('code-A-1'), login('code-A-2')]);
+      assert.ok(sessions.every(session => session.user.id === wa.user.id));
+      for (let i = 0; i < 6; i++) await login(`code-A-${i + 3}`);
+      assert.equal(await db.user.count({ where: { wxAppId: 'wx0123456789abcdef', wxOpenId: 'openid-A' } }), 1);
+      assert.equal(await db.wechatSession.count({ where: { userId: wa.user.id } }), 5);
+    });
+    await t.test('不同 AppID 的相同 OpenID 不会串号或复用令牌', async () => {
+      const prior = await login('code-A');
+      await app.close(); app = undefined;
+      await start('wechat', 'wxfedcba9876543210');
+      assert.equal((await call('/me', 'GET', prior.token)).status, 401);
+      const anotherApp = await login('code-A');
+      assert.notEqual(anotherApp.user.id, wa.user.id);
+      assert.equal((await call('/roundtables/join', 'POST', anotherApp.token, { code: wechatRoom.inviteCode })).status, 404);
+      assert.deepEqual(await (await call('/me/arrangements', 'GET', anotherApp.token)).json(), []);
+      assert.deepEqual(await (await call('/me/memories', 'GET', anotherApp.token)).json(), []);
     });
   } finally {
     await app?.close();

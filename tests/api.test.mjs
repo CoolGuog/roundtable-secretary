@@ -1,10 +1,12 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../apps/api/dist/app.js';
+import { memoryContract, sampleMemory } from './memory-contract.mjs';
+import { roomContract, sampleRoom } from './room-contract.mjs';
 
 let app, base;
 before(async () => {
-  app = await createApp({ storage: 'memory' });
+  app = await createApp({ storage: 'memory', authMode: 'demo' });
   await app.listen(0, '127.0.0.1');
   base = await app.getUrl();
 });
@@ -22,6 +24,33 @@ async function user(name) {
   return response.json();
 }
 const sample = { title: '演示课程', date: '2026-09-23', startTime: '19:00', endTime: '20:00' };
+
+test('内存演示记忆接口', t => memoryContract(t, call, user));
+test('内存演示圆桌接口', t => roomContract(t, call, user));
+test('圆桌最多参与 20 个进行中的房间，关闭后释放额度', async () => {
+  const a = await user('圆桌配额');
+  let id;
+  for (let i = 0; i < 20; i++) {
+    const response = await call('/roundtables', 'POST', a.token, sampleRoom);
+    assert.equal(response.status, 201); id = (await response.json()).id;
+  }
+  assert.equal((await call('/roundtables', 'POST', a.token, sampleRoom)).status, 400);
+  await call(`/roundtables/${id}/close`, 'POST', a.token);
+  assert.equal((await call('/roundtables', 'POST', a.token, sampleRoom)).status, 201);
+});
+test('内存演示记忆达到配额后仍可编辑与删除', async () => {
+  const a = await user('记忆配额');
+  let id;
+  for (let i = 0; i < 100; i++) {
+    const response = await call('/me/memories', 'POST', a.token, sampleMemory);
+    assert.equal(response.status, 201);
+    id = (await response.json()).id;
+  }
+  assert.equal((await call('/me/memories', 'POST', a.token, sampleMemory)).status, 400);
+  assert.equal((await call(`/me/memories/${id}`, 'PUT', a.token, sampleMemory)).status, 200);
+  assert.equal((await call(`/me/memories/${id}`, 'DELETE', a.token)).status, 204);
+  assert.equal((await call('/me/memories', 'POST', a.token, sampleMemory)).status, 201);
+});
 
 test('健康状态明确为内存演示且不接收模型密钥', async () => {
   const response = await call('/health');

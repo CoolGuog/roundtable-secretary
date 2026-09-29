@@ -1,0 +1,30 @@
+<view class="page">
+  <text class="eyebrow">PERSONAL MEMORY</text>
+  <view class="title">记住你的习惯。</view>
+  <view class="subtitle">偏好、限制与备忘，都由你管理。</view>
+  <view class="muted spaced">{{mode}}</view>
+  <view class="notice">这些记录仅供本人查看。目前尚未用于自动安排或圆桌协商。</view>
+  <button wx:if="{{!editorOpen}}" class="primary add-memory" bindtap="add" disabled="{{busy || loading || items.length >= 100}}">新增记忆</button>
+  <view wx:if="{{editorOpen}}" class="card editor">
+    <view class="card-title">{{editingId ? '编辑记忆' : '新增记忆'}}</view>
+    <text class="field-label">类型</text>
+    <picker range="{{categoryNames}}" value="{{categoryIndex}}" bindchange="onCategory" disabled="{{busy}}"><view class="field">{{categoryNames[categoryIndex]}} · 点击选择</view></picker>
+    <text class="field-label">标题</text>
+    <input class="field memory-label" value="{{label}}" bindinput="onLabel" maxlength="40" placeholder="例如：喜欢的活动时间" disabled="{{busy}}" />
+    <text class="field-label">内容 · {{content.length}} / 500</text>
+    <textarea class="field memory-content" value="{{content}}" bindinput="onContent" maxlength="500" placeholder="例如：周末下午更方便参加活动" disabled="{{busy}}" />
+    <button class="primary save-memory" bindtap="save" loading="{{busy}}" disabled="{{busy || loading}}">保存记忆</button>
+    <button class="secondary" bindtap="cancel" disabled="{{busy}}">取消</button>
+  </view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button wx:if="{{error && !editorOpen}}" class="secondary" bindtap="reload" disabled="{{busy || loading}}">重新加载</button>
+  <view class="section-label">我的记忆 · {{items.length}} / 100</view>
+  <view wx:if="{{loading}}" class="empty">正在读取…</view>
+  <view wx:elif="{{!items.length && !error}}" class="empty">还没有记录。<view>从一个小习惯开始，让秘书更了解你。</view></view>
+  <view wx:for="{{items}}" wx:key="id" class="card memory-card">
+    <view class="row"><view class="card-title memory-title">{{item.label}}</view><text class="badge">{{item.categoryName}}</text></view>
+    <view class="memory-text">{{item.content}}</view>
+    <view class="muted">{{item.sourceName}} · {{item.updatedLabel}} 更新（北京时间）</view>
+    <view class="actions"><button class="link-button edit-memory" data-id="{{item.id}}" bindtap="edit" disabled="{{busy || loading}}">编辑</button><button class="link-button delete-memory" data-id="{{item.id}}" bindtap="remove" disabled="{{busy || loading}}">删除</button></view>
+  </view>
+</view>

@@ -1,18 +1,26 @@
 import { BadRequestException } from '@nestjs/common';
+import type { PersonalMemory } from './memory';
+import type { RoomStore } from './rooms';
 
 export type ArrangementInput = { title: string; date: string; startTime: string; endTime: string };
 export type Arrangement = ArrangementInput & { id: string; createdAt: string };
 export type User = { id: string; name: string; secretaryName: string };
 export const STORE = Symbol('personal-store');
 export interface PersonalStore {
+  readonly rooms: RoomStore;
   readonly persistence: 'memory' | 'postgres';
   createSession(value: unknown): unknown;
   authenticate(token: string): string | Promise<string>;
+  revokeSession(token: string): void | Promise<void>;
   profile(userId: string): User | Promise<User>;
   list(userId: string): Arrangement[] | Promise<Arrangement[]>;
   create(userId: string, value: unknown): Arrangement | Promise<Arrangement>;
   update(userId: string, id: string, value: unknown): Arrangement | Promise<Arrangement>;
   remove(userId: string, id: string): void | Promise<void>;
+  listMemories(userId: string): PersonalMemory[] | Promise<PersonalMemory[]>;
+  createMemory(userId: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;
+  updateMemory(userId: string, id: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;
+  removeMemory(userId: string, id: string): void | Promise<void>;
 }
 export function inputObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadRequestException('请求格式不正确');

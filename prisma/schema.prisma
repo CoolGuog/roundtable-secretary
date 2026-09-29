@@ -1,7 +1,6 @@
-// 圆桌秘书 · 数据模型（草稿 v0，待 A/B 对齐后定稿）
+// 圆桌秘书 · 数据模型
 //
-// 本阶段范围：用户、个人记忆、个人日程。
-// 圆桌、成员、提案、确认属于阶段二及以后，待接口约定确定后再补，避免此处先入为主。
+// 当前范围：用户、个人记忆、个人日程、圆桌与成员。提案和确认另行扩展。
 //
 // 命名约定：
 //   - 数据库表名 / 列名用 snake_case（靠 @map / @@map）
@@ -67,7 +66,8 @@ model User {
   id String @id @default(uuid()) @db.Uuid
 
   /// 微信身份。阶段三回填；同一微信用户唯一。
-  wxOpenId  String? @unique @map("wx_open_id") @db.VarChar(64)
+  wxAppId String? @map("wx_app_id") @db.VarChar(18)
+  wxOpenId  String? @map("wx_open_id") @db.VarChar(64)
   wxUnionId String? @unique @map("wx_union_id") @db.VarChar(64)
 
   /// 展示名（对应现有演示接口的 name，校验为 1~20 字）
@@ -81,8 +81,66 @@ model User {
   memories     PersonalMemory[]
   arrangements Arrangement[]
   demoSessions DemoSession[]
+  wechatSessions WechatSession[]
+  ownedRoundtables Roundtable[]
+  roundtableMemberships RoundtableMember[]
 
+  @@unique([wxAppId, wxOpenId])
   @@map("users")
+}
+
+enum RoundtableStatus {
+  OPEN
+  CLOSED
+  @@map("roundtable_status")
+}
+
+model Roundtable {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  title String @db.VarChar(60)
+  goal String @db.VarChar(500)
+  dateFrom String @map("date_from") @db.VarChar(10)
+  dateTo String @map("date_to") @db.VarChar(10)
+  startTime String @map("start_time") @db.VarChar(5)
+  endTime String @map("end_time") @db.VarChar(5)
+  durationMinutes Int @map("duration_minutes")
+  status RoundtableStatus @default(OPEN)
+  version Int @default(1)
+  inviteCode String @unique @map("invite_code") @db.VarChar(20)
+  inviteExpiresAt DateTime @map("invite_expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members RoundtableMember[]
+  @@index([ownerId])
+  @@map("roundtables")
+}
+
+model RoundtableMember {
+  id String @id @default(uuid()) @db.Uuid
+  roomId String @map("room_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  shareBusy Boolean @default(false) @map("share_busy")
+  consentUpdatedAt DateTime? @map("consent_updated_at") @db.Timestamptz(3)
+  joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
+  room Roundtable @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@map("roundtable_members")
+}
+
+/// 微信登录会话与演示会话完全分离，只保存自建令牌摘要。
+model WechatSession {
+  tokenHash String @id @map("token_hash") @db.VarChar(64)
+  userId String @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("wechat_sessions")
 }
 
 /// 仅限本机演示；保存令牌的 SHA-256 摘要，不保存明文令牌。

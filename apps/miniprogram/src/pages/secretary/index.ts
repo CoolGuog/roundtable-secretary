@@ -7,7 +7,7 @@ Page({
   },
   async onShow() {
     try { this.setData({ count: (await listArrangements()).length, error: '' }); }
-    catch (error) { this.setData({ error: errorMessage(error) }); }
+    catch (error) { this.setData({ count: 0, error: errorMessage(error) }); }
   },
   openForm() { this.setData({ showForm: true, error: '' }); },
   closeForm() { if (!this.data.saving) this.setData({ showForm: false }); },

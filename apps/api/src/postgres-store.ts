@@ -1,11 +1,17 @@
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { Prisma, PrismaClient, Arrangement as DbArrangement } from '@prisma/client';
+import { Prisma, PrismaClient, Arrangement as DbArrangement, PersonalMemory as DbMemory } from '@prisma/client';
+import { PersonalMemory, validateMemory } from './memory';
+import { PostgresRooms } from './postgres-rooms';
 import { createHash, randomBytes } from 'node:crypto';
 import { Arrangement, PersonalStore, validateArrangement, validateArrangementPatch, validateName } from './store';
 import { TIME_ZONE, beijingDate, beijingInstant, beijingTime } from './time';
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function memoryDto(item: DbMemory): PersonalMemory {
+  return { id: item.id, category: item.category, label: item.label, content: item.content, source: item.source,
+    createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() };
+}
 // 接口暂时保留 date + HH:mm；数据库统一存绝对时间，输入输出均按北京时间。
 function toDto(item: DbArrangement): Arrangement {
   return { id: item.id, title: item.title, date: beijingDate(item.startsAt),
@@ -14,19 +20,22 @@ function toDto(item: DbArrangement): Arrangement {
 
 export class PostgresStore implements PersonalStore {
   readonly persistence = 'postgres' as const;
-  private constructor(private readonly db: PrismaClient) {}
-  static async connect(url: string) {
+  readonly rooms: PostgresRooms;
+  private constructor(private readonly db: PrismaClient, private readonly wechatAppId?: string) {
+    this.rooms = new PostgresRooms(db, operation => this.transaction(operation), wechatAppId);
+  }
+  static async connect(url: string, wechatAppId?: string) {
     const db = new PrismaClient({ datasources: { db: { url } }, log: [] });
-    try { await db.$connect(); await db.demoSession.count(); }
+    try { await db.$connect(); await db.demoSession.count(); if (wechatAppId) await db.wechatSession.count(); }
     catch { await db.$disconnect(); throw new Error('数据库连接或迁移未就绪，请检查 DATABASE_URL 并执行 db:deploy'); }
-    return new PostgresStore(db);
+    return new PostgresStore(db, wechatAppId);
   }
   async onModuleDestroy() { await this.db.$disconnect(); }
   private async transaction<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try { return await this.db.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
       catch (error) {
-        if (attempt >= 4 || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+        if (attempt >= 4 || !(error instanceof Prisma.PrismaClientKnownRequestError) || !['P2034', 'P2002'].includes(error.code)) throw error;
       }
     }
   }
@@ -43,9 +52,38 @@ export class PostgresStore implements PersonalStore {
     return { token, user: { id: user.id, name: user.displayName, secretaryName: user.secretaryName }, expiresInSeconds: 3600, mode: 'local-demo' };
   }
   async authenticate(token: string) {
+    if (this.wechatAppId) {
+      const session = await this.db.wechatSession.findUnique({ where: { tokenHash: hash(token) }, include: { user: true } });
+      if (!session || session.expiresAt.getTime() <= Date.now() || session.user.wxAppId !== this.wechatAppId) {
+        throw new UnauthorizedException('登录已失效，请重新登录');
+      }
+      return session.userId;
+    }
     const session = await this.db.demoSession.findUnique({ where: { tokenHash: hash(token) } });
     if (!session || session.expiresAt.getTime() <= Date.now()) throw new UnauthorizedException('演示会话已失效');
     return session.userId;
+  }
+  async createWechatSession(openId: string) {
+    if (!this.wechatAppId) throw new Error('微信登录未启用');
+    const appId = this.wechatAppId;
+    const token = randomBytes(32).toString('hex');
+    const expiresInSeconds = 7 * 24 * 3600;
+    const user = await this.transaction(async tx => {
+      const user = await tx.user.upsert({
+        where: { wxAppId_wxOpenId: { wxAppId: appId, wxOpenId: openId } },
+        create: { wxAppId: appId, wxOpenId: openId, displayName: '微信用户' }, update: {},
+      });
+      await tx.wechatSession.deleteMany({ where: { userId: user.id, expiresAt: { lte: new Date() } } });
+      const older = await tx.wechatSession.findMany({ where: { userId: user.id }, orderBy: [{ createdAt: 'desc' }, { tokenHash: 'asc' }], skip: 4 });
+      if (older.length) await tx.wechatSession.deleteMany({ where: { tokenHash: { in: older.map(item => item.tokenHash) } } });
+      await tx.wechatSession.create({ data: { userId: user.id, tokenHash: hash(token), expiresAt: new Date(Date.now() + expiresInSeconds * 1000) } });
+      return user;
+    });
+    return { token, user: { id: user.id, name: user.displayName, secretaryName: user.secretaryName }, expiresInSeconds, mode: 'wechat' };
+  }
+  async revokeSession(token: string) {
+    if (this.wechatAppId) await this.db.wechatSession.deleteMany({ where: { tokenHash: hash(token) } });
+    else await this.db.demoSession.deleteMany({ where: { tokenHash: hash(token) } });
   }
   async profile(userId: string) {
     const user = await this.db.user.findUniqueOrThrow({ where: { id: userId } });
@@ -85,5 +123,27 @@ export class PostgresStore implements PersonalStore {
     if (!UUID_PATTERN.test(id)) throw new NotFoundException('安排不存在');
     const result = await this.db.arrangement.deleteMany({ where: { id, ownerId: userId } });
     if (result.count === 0) throw new NotFoundException('安排不存在');
+  }
+  async listMemories(userId: string) {
+    return (await this.db.personalMemory.findMany({ where: { userId }, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }] })).map(memoryDto);
+  }
+  async createMemory(userId: string, value: unknown) {
+    const input = validateMemory(value);
+    return memoryDto(await this.transaction(async tx => {
+      if (await tx.personalMemory.count({ where: { userId } }) >= 100) throw new BadRequestException('最多保存 100 条个人记忆');
+      return tx.personalMemory.create({ data: { ...input, userId, source: 'USER_INPUT' } });
+    }));
+  }
+  async updateMemory(userId: string, id: string, value: unknown) {
+    const input = validateMemory(value);
+    if (!UUID_PATTERN.test(id)) throw new NotFoundException('个人记忆不存在');
+    return memoryDto(await this.transaction(async tx => {
+      if (!await tx.personalMemory.findFirst({ where: { id, userId } })) throw new NotFoundException('个人记忆不存在');
+      return tx.personalMemory.update({ where: { id }, data: { ...input, source: 'USER_INPUT', sourceRef: null } });
+    }));
+  }
+  async removeMemory(userId: string, id: string) {
+    if (!UUID_PATTERN.test(id)) throw new NotFoundException('个人记忆不存在');
+    if (!(await this.db.personalMemory.deleteMany({ where: { id, userId } })).count) throw new NotFoundException('个人记忆不存在');
   }
 }
