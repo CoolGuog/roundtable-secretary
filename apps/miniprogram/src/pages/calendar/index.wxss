@@ -1,3 +1,4 @@
 .empty { white-space: pre-line; }
 .record > view { flex: 1; min-width: 0; }
 .record-title { overflow-wrap: break-word; }
+.record-actions { display: flex; align-items: center; flex-shrink: 0; gap: 4rpx; }

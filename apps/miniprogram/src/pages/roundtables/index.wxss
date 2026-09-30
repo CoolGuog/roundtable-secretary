@@ -1,1 +1,5 @@
 .title { white-space: pre-line; }
+.room-goal { width: 100%; height: 160rpx; box-sizing: border-box; }
+.room-name { flex: 1; overflow-wrap: anywhere; }
+.badge { flex-shrink: 0; }
+.two-col > view > .secondary { margin-top: 28rpx; line-height: 88rpx; }

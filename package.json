@@ -4,6 +4,13 @@
   "private": true,
   "description": "圆桌秘书微信小程序与后台",
   "scripts": {
+    "check:setup": "node scripts/check-setup.mjs",
+    "db:generate": "prisma generate",
+    "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "prebuild:api": "prisma generate",
+    "pretypecheck": "prisma generate",
+    "test:postgres": "npm run build:api && node scripts/test-postgres.mjs",
     "build:api": "tsc -p apps/api/tsconfig.json",
     "build:mini": "node scripts/build-mini.mjs",
     "typecheck": "tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/miniprogram/tsconfig.json --noEmit",
@@ -16,12 +23,14 @@
     "@nestjs/common": "^12.0.3",
     "@nestjs/core": "^12.0.3",
     "@nestjs/platform-express": "^12.0.3",
+    "@prisma/client": "^6.19.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "miniprogram-api-typings": "^5.0.0",
+    "prisma": "^6.19.3",
     "typescript": "^5.9.0"
   },
   "engines": {

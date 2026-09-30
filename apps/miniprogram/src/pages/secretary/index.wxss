@@ -10,3 +10,4 @@
 .step { flex: 1; background: #eeeee6; padding: 24rpx 16rpx; border-radius: 18rpx; font-size: 22rpx; color: #92988b; }
 .step text { display: block; font-size: 34rpx; margin-bottom: 18rpx; }
 .step.active { background: #e3ebdc; color: #36543f; }
+.area { height: 132rpx; line-height: 40rpx; padding-top: 16rpx; }
