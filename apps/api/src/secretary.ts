@@ -72,6 +72,11 @@ const DAY_PERIODS: Array<[RegExp, [string, string], string]> = [
 ];
 
 function pad(value: number): string { return String(value).padStart(2, '0'); }
+function isValidDate(value: string): boolean {
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 
 function minutesOf(time: string): number {
   const [h, m] = time.split(':').map(Number);
@@ -85,6 +90,11 @@ function timeFrom(total: number): string {
 type DateHit = { date: string; reason: string; span: [number, number]; guessed: boolean };
 
 function parseDate(text: string, today: string): DateHit | null {
+  const explicit = /(20\d{2})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*日?/.exec(text);
+  if (explicit) {
+    const date = `${explicit[1]}-${pad(Number(explicit[2]))}-${pad(Number(explicit[3]))}`;
+    return isValidDate(date) ? { date, reason: `按明确日期 ${date} 理解`, span: [explicit.index, explicit.index + explicit[0].length], guessed: false } : null;
+  }
   const relative: Array<[RegExp, number, string]> = [
     [/大后天/, 3, '大后天'], [/后天/, 2, '后天'], [/明天|明日|明儿/, 1, '明天'], [/今天|今日|今晚|今儿/, 0, '今天'],
   ];
@@ -101,9 +111,9 @@ function parseDate(text: string, today: string): DateHit | null {
     const prefix = weekMatch[1] ?? '';
     let reason: string;
     if (/下/.test(prefix)) {
-      date = dayOffset(date, 7);
-      reason = `「下周${weekMatch[2]}」按北京时间换算为 ${date}`;
-    } else if (date < today) {
+      date = dayOffset(date, prefix.includes('下下') ? 14 : 7);
+      reason = `「${prefix}周${weekMatch[2]}」按北京时间换算为 ${date}`;
+    } else if (date < today && !prefix) {
       date = dayOffset(date, 7);
       reason = `本周${weekMatch[2]}已过，按下一个${weekMatch[2]}（${date}）理解`;
     } else {
@@ -117,10 +127,10 @@ function parseDate(text: string, today: string): DateHit | null {
     const month = Number(monthDay[1]), day = Number(monthDay[2]);
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
       let date = `${today.slice(0, 4)}-${pad(month)}-${pad(day)}`;
-      if (!Number.isNaN(beijingInstant(date, '12:00').getTime())) {
+      if (isValidDate(date)) {
         let reason = `按 ${month} 月 ${day} 日理解`;
         if (date < today) { date = `${Number(today.slice(0, 4)) + 1}-${pad(month)}-${pad(day)}`; reason = `${month} 月 ${day} 日已过，按次年 ${date} 理解`; }
-        return { date, reason, span: [monthDay.index, monthDay.index + monthDay[0].length], guessed: false };
+        return isValidDate(date) ? { date, reason, span: [monthDay.index, monthDay.index + monthDay[0].length], guessed: false } : null;
       }
     }
   }
@@ -158,23 +168,25 @@ function readClock(text: string, meridiem: 'AM' | 'PM' | null, from: number): { 
   const colon = new RegExp(`${NUMBER}\\s*[:：]\\s*(\\d{2})`).exec(source);
   if (colon) {
     const hour = cnNumber(colon[1]);
-    if (hour != null && hour <= 24) {
+    if (hour != null && hour < 24 && Number(colon[2]) < 60) {
       const minutes = toMinutes(hour, false, Number(colon[2]), meridiem);
       return clock(from + colon.index, colon[0].length, minutes, timeFrom(minutes));
     }
+    return null;
   }
   const point = new RegExp(`${NUMBER}\\s*点\\s*(半|(\\d{1,2})\\s*分?)?`).exec(source);
   if (point) {
     const hour = cnNumber(point[1]);
-    if (hour != null && hour <= 24) {
+    if (hour != null && hour < 24 && Number(point[3] ?? 0) < 60) {
       const minutes = toMinutes(hour, point[2] === '半', point[3] ? Number(point[3]) : undefined, meridiem);
       return clock(from + point.index, point[0].length, minutes, `${timeFrom(minutes)}`);
     }
+    return null;
   }
   const plain = new RegExp(`${NUMBER}\\s*[点时]`).exec(source);
   if (plain) {
     const hour = cnNumber(plain[1]);
-    if (hour != null && hour <= 24) {
+    if (hour != null && hour < 24) {
       const minutes = toMinutes(hour, false, 0, meridiem);
       return clock(from + plain.index, plain[0].length, minutes, `${timeFrom(minutes)}`);
     }
@@ -203,6 +215,8 @@ function parseTime(text: string): TimeHit | null {
   }
 
   const single = readClock(text, meridiem, 0);
+  // 出现了明确但无效的时刻时，不退回“下午”等模糊时段并伪造一个有效时间。
+  if (!single && /[\d零一二两三四五六七八九十]+\s*(?:[:：]|点|时)/.test(text)) return null;
   const duration = /(\d{1,2}(?:\.\d)?)\s*(?:个)?\s*(小时|分钟)/.exec(text);
   if (single) {
     if (duration) {
@@ -249,8 +263,8 @@ export function parseChinese(text: string, today: string): { title: string | nul
   return {
     title: title && title.length > 60 ? title.slice(0, 60) : title,
     date: dateHit?.date ?? null,
-    startTime: timeHit ? timeFrom(timeHit.start) : null,
-    endTime: timeHit?.end != null ? timeFrom(timeHit.end) : null,
+    startTime: timeHit && timeHit.start >= 0 && timeHit.start < 1440 ? timeFrom(timeHit.start) : null,
+    endTime: timeHit?.end != null && timeHit.end < 1440 && timeHit.end > timeHit.start ? timeFrom(timeHit.end) : null,
     reasons,
     guessed: Boolean(timeHit?.guessedEnd) || Boolean(dateHit?.guessed),
   };
@@ -359,6 +373,7 @@ export class HttpModel implements SecretaryModel {
         messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: buildPrompt(request) }],
       }),
       signal: AbortSignal.timeout(this.options.timeoutMs ?? MODEL_TIMEOUT_MS),
+      redirect: 'error',
     });
     if (!response.ok) throw new Error(`模型返回 ${response.status}`);
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
@@ -369,7 +384,6 @@ export class HttpModel implements SecretaryModel {
 
 // ---------- 草稿服务 ----------
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function readField(raw: Record<string, unknown>, keys: string[]): string | null {
@@ -423,7 +437,7 @@ export class SecretaryService {
 
     const date = readField(raw, ['date', 'day']);
     let validDate: string | null = null;
-    if (date && DATE_PATTERN.test(date) && !Number.isNaN(beijingInstant(date, '12:00').getTime()) && date >= today) validDate = date;
+    if (date && isValidDate(date) && date >= today) validDate = date;
     else if (date) reasons.push(`模型给出的日期「${date}」不可用（格式不对或早于今天），请确认`);
     if (!validDate) missing.push('date');
 

@@ -12,7 +12,7 @@ Page({
     try { this.setData({ count: (await listArrangements()).length, error: '' }); }
     catch (error) { this.setData({ count: 0, error: errorMessage(error) }); }
   },
-  openForm() { this.setData({ showForm: true, error: '' }); },
+  openForm() { if (!this.data.drafting && !this.data.saving) this.setData({ showForm: true, error: '' }); },
   closeForm() { if (!this.data.saving) this.setData({ showForm: false }); },
   onUtterance(event: WechatMiniprogram.Input) { this.setData({ utterance: event.detail.value }); },
   onTitle(event: WechatMiniprogram.Input) { this.setData({ title: event.detail.value }); },
@@ -21,25 +21,29 @@ Page({
   onEnd(event: WechatMiniprogram.PickerChange) { this.setData({ endTime: String(event.detail.value) }); },
   // 只整理成草稿：解析出来的字段填进下面的表单，仍然要用户点一次确认才写入。
   async generate() {
-    if (this.data.drafting) return;
-    this.setData({ drafting: true, error: '' });
+    if (this.data.drafting || this.data.saving) return;
+    this.setData({ drafting: true, error: '', draft: null, draftMemoryNote: '', showForm: false,
+      title: '', date: '', startTime: '', endTime: '' });
     try {
       const draft = await draftFromText(this.data.utterance);
       this.setData({
         draft,
         draftMemoryNote: draft.usedMemories.length ? `参考了你的记忆：${draft.usedMemories.join('、')}` : '',
-        title: draft.title ?? this.data.title,
-        date: draft.date ?? this.data.date,
-        startTime: draft.startTime ?? this.data.startTime,
-        endTime: draft.endTime ?? this.data.endTime,
-        showForm: true,
+        title: draft.title ?? '',
+        date: draft.date ?? '',
+        startTime: draft.startTime ?? '',
+        endTime: draft.endTime ?? '',
+        showForm: draft.status !== 'UNAVAILABLE',
         error: draft.status === 'UNAVAILABLE' ? draft.message : '',
       });
     } catch (error) { this.setData({ error: errorMessage(error) }); }
     finally { this.setData({ drafting: false }); }
   },
   async save() {
-    if (this.data.saving) return;
+    if (this.data.saving || this.data.drafting) return;
+    if (!this.data.title.trim() || !this.data.date || !this.data.startTime || !this.data.endTime) {
+      this.setData({ error: '请补全名称、日期和起止时间后再保存' }); return;
+    }
     this.setData({ saving: true, error: '' });
     try {
       const { title, date, startTime, endTime } = this.data;

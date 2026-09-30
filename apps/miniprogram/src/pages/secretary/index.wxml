@@ -12,8 +12,8 @@
   </view>
   <view class="card">
     <view class="card-title">用一句话说说</view>
-    <textarea class="field area" maxlength="200" placeholder="例如：明天下午三点到四点和导师开会" bindinput="onUtterance" />
-    <button class="primary" loading="{{drafting}}" disabled="{{drafting}}" bindtap="generate">让秘书整理成草稿</button>
+    <textarea class="field area" value="{{utterance}}" maxlength="200" disabled="{{drafting || saving}}" placeholder="例如：明天下午三点到四点和导师开会" bindinput="onUtterance" />
+    <button class="primary generate-draft" loading="{{drafting}}" disabled="{{drafting || saving}}" bindtap="generate">让秘书整理成草稿</button>
     <view class="muted spaced">只生成待确认的草稿，确认后才会写入你的日程。</view>
   </view>
   <view class="card" wx:if="{{draft}}">
@@ -27,17 +27,17 @@
     <text class="field-label">安排名称</text>
     <input class="field" value="{{title}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onTitle" />
     <text class="field-label">日期</text>
-    <picker mode="date" value="{{date}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">{{date}}</view></picker>
+    <picker mode="date" value="{{date}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">{{date || '请选择日期'}}</view></picker>
     <view class="two-col">
-      <view><text class="field-label">开始</text><picker mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime}}</view></picker></view>
-      <view><text class="field-label">结束</text><picker mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime}}</view></picker></view>
+      <view><text class="field-label">开始</text><picker mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime || '请选择开始时间'}}</view></picker></view>
+      <view><text class="field-label">结束</text><picker mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime || '请选择结束时间'}}</view></picker></view>
     </view>
     <view class="muted spaced">按北京时间（UTC+8）记录。当前请只填写虚构的演示安排。</view>
-    <button class="primary" loading="{{saving}}" disabled="{{saving}}" bindtap="save">确认保存</button>
+    <button class="primary save-draft" loading="{{saving}}" disabled="{{saving || drafting}}" bindtap="save">确认保存</button>
     <button class="secondary" disabled="{{saving}}" bindtap="closeForm">稍后再填</button>
   </view>
   <view class="error" wx:if="{{error}}">{{error}}</view>
   <view class="section-label">从个人安排，到共同决定</view>
   <view class="steps"><view class="step active"><text>01</text><view>建立个人日程</view></view><view class="step"><text>02</text><view>邀请朋友围桌</view></view><view class="step"><text>03</text><view>秘书协商安排</view></view></view>
-  <view class="notice">当前是第一阶段原型：只验证日程录入与保存，尚未连接模型、微信登录或多人协商。请勿输入真实隐私或 API Key。</view>
+  <view class="notice">后台模式已支持日程草稿与圆桌时间协商。本机模式只保存本机数据；真实微信账号和真机体验仍待验证。</view>
 </view>
