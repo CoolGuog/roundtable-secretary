@@ -1,4 +1,4 @@
-import { Room, Availability, Proposal, Slot, decideProposal, getRoom, isLocalRoomMode, loadAvailability, loadProposal, proposeSlot, roomAction } from '../../services/roundtables';
+import { Room, Availability, Proposal, Slot, cancelProposal, decideProposal, getRoom, isLocalRoomMode, loadAvailability, loadProposal, proposeSlot, roomAction } from '../../services/roundtables';
 import { errorMessage } from '../../services/secretary';
 type Action = 'consent' | 'rotate' | 'close' | 'leave' | 'remove';
 /** 同名成员也能安全作为列表 key */
@@ -22,9 +22,9 @@ Page({
     finally { this.setData({ loading: false }); }
   },
   async refreshProposal() {
-    if (this.data.local || this.data.room?.status !== 'OPEN') return;
+    if (this.data.local || !this.data.room) return;
     try { const proposal = await loadProposal(this.data.id); this.setData({ proposal: proposal ? withKeys(proposal) : null }); }
-    catch { this.setData({ proposal: null }); }
+    catch (error) { this.setData({ proposal: null, error: errorMessage(error) }); }
   },
   async perform(action: Action, value?: boolean | string) {
     this.setData({ busy: true, error: '' });
@@ -104,5 +104,19 @@ Page({
       if (proposal.status === 'CONFIRMED') wx.showToast({ title: '已写入各自日程', icon: 'success' });
     } catch (error) { this.setData({ error: errorMessage(error) }); this.refreshProposal(); }
     finally { this.setData({ busy: false }); }
+  },
+  cancelProposal() {
+    if (this.data.busy || this.data.loading || !this.data.proposal?.createdByMe) return;
+    const id = this.data.proposal.id;
+    this.setData({ busy: true });
+    wx.showModal({ title: '撤回这个方案？', content: '撤回后不再接受确认，也不会写入日程。你可以重新计算并提出方案。',
+      success: async result => {
+        try {
+          if (!result.confirm) return;
+          this.setData({ error: '', proposal: withKeys(await cancelProposal(this.data.id, id)), availability: null });
+        } catch (error) { this.setData({ error: errorMessage(error) }); await this.refreshProposal(); }
+        finally { this.setData({ busy: false }); }
+      }, fail: () => this.setData({ busy: false, error: '未能打开确认窗口，请重试' }),
+    });
   },
 });

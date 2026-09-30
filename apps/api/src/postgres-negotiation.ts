@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import {
   Availability, Decision, NegotiationRoom, NegotiationStore, Proposal, PROPOSAL_TTL_MS,
@@ -50,9 +50,11 @@ export class PostgresNegotiation implements NegotiationStore {
         decidedAt: vote.decidedAt?.toISOString() ?? null, isMe: vote.userId === userId })) };
   }
   async availability(userId: string, roomId: string): Promise<Availability> {
-    const room = await this.loadRoom(this.db, userId, roomId);
-    if (room.status !== 'OPEN') throw new BadRequestException('圆桌已关闭，不能再协商');
-    return this.compute(this.db, room);
+    return this.transaction(async tx => {
+      const room = await this.loadRoom(tx, userId, roomId);
+      if (room.status !== 'OPEN') throw new BadRequestException('圆桌已关闭，不能再协商');
+      return this.compute(tx, room);
+    });
   }
   async createProposal(userId: string, roomId: string, value: unknown): Promise<Proposal> {
     const slot = validateProposalInput(value);
@@ -64,8 +66,10 @@ export class PostgresNegotiation implements NegotiationStore {
       if (!available.slots.some(item => sameSlot(item, slot))) {
         throw new BadRequestException(available.reason ?? '该时段已不是当前的共同可用时间，请重新计算后选择');
       }
-      if (await tx.proposal.count({ where: { roomId, status: 'OPEN' } })) {
-        throw new BadRequestException('已有一个待确认方案，请先完成确认或等它失效');
+      const existing = await tx.proposal.findMany({ where: { roomId, status: 'OPEN' } });
+      for (const item of existing) {
+        if (!isStale(item, room.version)) throw new BadRequestException('已有一个待确认方案，请先完成确认或撤回');
+        await tx.proposal.update({ where: { id: item.id }, data: { status: 'EXPIRED' } });
       }
       const proposal = await tx.proposal.create({ data: { ...slot, roomId, roomVersion: room.version, createdById: userId,
         expiresAt: new Date(Date.now() + PROPOSAL_TTL_MS),
@@ -74,17 +78,16 @@ export class PostgresNegotiation implements NegotiationStore {
     });
   }
   async currentProposal(userId: string, roomId: string): Promise<Proposal | null> {
-    const room = await this.loadRoom(this.db, userId, roomId);
-    let proposal = await this.db.proposal.findFirst({
-      where: { roomId }, include: votes,
-      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'asc' }],
+    return this.transaction(async tx => {
+      const room = await this.loadRoom(tx, userId, roomId);
+      const orderBy = [{ createdAt: 'desc' as const }, { id: 'asc' as const }];
+      let proposal = await tx.proposal.findFirst({ where: { roomId, status: 'OPEN' }, include: votes, orderBy })
+        ?? await tx.proposal.findFirst({ where: { roomId }, include: votes, orderBy });
+      if (!proposal) return null;
+      // 与确认操作共用事务隔离，避免读取失效状态时覆盖并发完成的确认。
+      if (isStale(proposal, room.version)) proposal = await tx.proposal.update({ where: { id: proposal.id }, data: { status: 'EXPIRED' }, include: votes });
+      return this.dto(proposal, room, userId);
     });
-    if (!proposal) return null;
-    // 已过期的方案在这里落定为 EXPIRED：确认路径上抛异常会被事务回滚，不适合写状态。
-    if (isStale(proposal, room.version)) {
-      proposal = await this.db.proposal.update({ where: { id: proposal.id }, data: { status: 'EXPIRED' }, include: votes });
-    }
-    return this.dto(proposal, room, userId);
   }
   async decide(userId: string, roomId: string, proposalId: string, value: unknown): Promise<Proposal> {
     const decision = validateDecision(value);
@@ -123,6 +126,18 @@ export class PostgresNegotiation implements NegotiationStore {
           timezone: TIME_ZONE, scope: 'PRIVATE' } });
       }
       return this.dto(await tx.proposal.update({ where: { id: proposal.id }, data: { status: 'CONFIRMED', appliedAt: new Date() }, include: votes }), room, userId);
+    });
+  }
+  async cancel(userId: string, roomId: string, proposalId: string): Promise<Proposal> {
+    return this.transaction(async tx => {
+      const room = await this.loadRoom(tx, userId, roomId);
+      if (!UUID_PATTERN.test(proposalId)) throw new NotFoundException('方案不存在');
+      const proposal = await tx.proposal.findFirst({ where: { id: proposalId, roomId }, include: votes });
+      if (!proposal) throw new NotFoundException('方案不存在');
+      if (proposal.createdById !== userId) throw new ForbiddenException('只有提案人可以撤回方案');
+      if (proposal.status === 'CANCELLED') return this.dto(proposal, room, userId);
+      if (proposal.status !== 'OPEN') throw new BadRequestException('该方案已结束，不能撤回');
+      return this.dto(await tx.proposal.update({ where: { id: proposalId }, data: { status: 'CANCELLED' }, include: votes }), room, userId);
     });
   }
 }

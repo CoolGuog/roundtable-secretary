@@ -74,6 +74,10 @@ export async function decideProposal(id: string, proposalId: string, decision: '
   if (isLocalRoomMode()) throw new Error(needsServer);
   return request<Proposal>(`/roundtables/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}`, 'PUT', { decision });
 }
+export async function cancelProposal(id: string, proposalId: string): Promise<Proposal> {
+  if (isLocalRoomMode()) throw new Error(needsServer);
+  return request<Proposal>(`/roundtables/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}`, 'DELETE');
+}
 export async function joinRoom(code: string): Promise<Room> {
   if (isLocalRoomMode()) throw new Error('多人加入需要后台模式，本机演示只支持创建与查看');
   return request('/roundtables/join', 'POST', { code: code.trim() });

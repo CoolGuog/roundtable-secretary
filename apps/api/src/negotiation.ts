@@ -6,7 +6,7 @@
 //   3. 未授权成员的安排完全不参与，但结果会标注覆盖率，避免误以为人人都在。
 //
 // 时间口径同全局约定：输入输出一律北京时间，内部比较用绝对时间。
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ArrangementInput, inputObject } from './store';
 import { beijingInstant, beijingTime } from './time';
@@ -184,7 +184,7 @@ type StoredProposal = {
 export type NegotiationDeps = {
   room: (userId: string, roomId: string) => NegotiationRoom;
   arrangements: (userId: string) => { date: string; startTime: string; endTime: string }[];
-  createArrangement: (userId: string, value: ArrangementInput) => unknown;
+  createArrangements: (entries: { userId: string; value: ArrangementInput }[]) => void;
   name: (userId: string) => string;
 };
 
@@ -193,12 +193,13 @@ export interface NegotiationStore {
   createProposal(userId: string, roomId: string, value: unknown): Proposal | Promise<Proposal>;
   currentProposal(userId: string, roomId: string): Proposal | null | Promise<Proposal | null>;
   decide(userId: string, roomId: string, proposalId: string, value: unknown): Proposal | Promise<Proposal>;
+  cancel(userId: string, roomId: string, proposalId: string): Proposal | Promise<Proposal>;
 }
 
 /** 计算某房间当前方案是否已失效（过期，或圆桌成员/授权已变） */
-export function isStale(proposal: Pick<StoredProposal, 'status' | 'expiresAt' | 'roomVersion'>, roomVersion: number, now = Date.now()) {
+export function isStale(proposal: Pick<StoredProposal, 'status' | 'expiresAt' | 'roomVersion' | 'date' | 'startTime'>, roomVersion: number, now = Date.now()) {
   if (proposal.status !== 'OPEN') return false;
-  return proposal.expiresAt.getTime() <= now || proposal.roomVersion !== roomVersion;
+  return proposal.expiresAt.getTime() <= now || proposal.roomVersion !== roomVersion || beijingInstant(proposal.date, proposal.startTime).getTime() <= now;
 }
 
 export class MemoryNegotiation implements NegotiationStore {
@@ -237,7 +238,9 @@ export class MemoryNegotiation implements NegotiationStore {
     if (!available.slots.some(item => sameSlot(item, slot))) {
       throw new BadRequestException(available.reason ?? '该时段已不是当前的共同可用时间，请重新计算后选择');
     }
-    if (this.open(roomId)) throw new BadRequestException('已有一个待确认方案，请先完成确认或等它失效');
+    const existing = this.open(roomId);
+    if (existing && isStale(existing, room.version)) existing.status = 'EXPIRED';
+    if (this.open(roomId)) throw new BadRequestException('已有一个待确认方案，请先完成确认或撤回');
     const proposal: StoredProposal = { ...slot, id: randomUUID(), roomId, roomVersion: room.version, status: 'OPEN',
       createdById: userId, expiresAt: new Date(Date.now() + PROPOSAL_TTL_MS), appliedAt: null, createdAt: new Date().toISOString(),
       votes: room.members.map(member => ({ userId: member.userId, decision: 'PENDING' as Decision, decidedAt: null })) };
@@ -263,10 +266,8 @@ export class MemoryNegotiation implements NegotiationStore {
     }
     const vote = proposal.votes.find(item => item.userId === userId);
     if (!vote) throw new NotFoundException('方案不存在');
-    vote.decision = decision;
-    vote.decidedAt = new Date().toISOString();
     if (decision === 'REJECT') proposal.status = 'REJECTED';
-    else if (proposal.votes.every(item => item.decision === 'ACCEPT')) {
+    else if (proposal.votes.every(item => item.userId === userId || item.decision === 'ACCEPT')) {
       const start = beijingInstant(proposal.date, proposal.startTime).getTime();
       const end = beijingInstant(proposal.date, proposal.endTime).getTime();
       // 写入前统一检查：任何成员在该时段已有安排都整体放弃，避免写出互相冲突的日程。
@@ -275,12 +276,23 @@ export class MemoryNegotiation implements NegotiationStore {
           overlaps(start, end, beijingInstant(item.date, item.startTime).getTime(), beijingInstant(item.date, item.endTime).getTime()));
         if (conflict) throw new BadRequestException('有成员在该时段已有其他安排，请重新选择时间');
       }
-      for (const member of room.members) {
-        this.deps.createArrangement(member.userId, { title: room.title, date: proposal.date, startTime: proposal.startTime, endTime: proposal.endTime });
-      }
+      this.deps.createArrangements(room.members.map(member => ({ userId: member.userId,
+        value: { title: room.title, date: proposal.date, startTime: proposal.startTime, endTime: proposal.endTime } })));
       proposal.status = 'CONFIRMED';
       proposal.appliedAt = new Date();
     }
+    vote.decision = decision;
+    vote.decidedAt = new Date().toISOString();
+    return this.dto(proposal, room, userId);
+  }
+  cancel(userId: string, roomId: string, proposalId: string): Proposal {
+    const room = this.deps.room(userId, roomId);
+    const proposal = this.proposals.find(item => item.id === proposalId && item.roomId === roomId);
+    if (!proposal) throw new NotFoundException('方案不存在');
+    if (proposal.createdById !== userId) throw new ForbiddenException('只有提案人可以撤回方案');
+    if (proposal.status === 'CANCELLED') return this.dto(proposal, room, userId);
+    if (proposal.status !== 'OPEN') throw new BadRequestException('该方案已结束，不能撤回');
+    proposal.status = 'CANCELLED';
     return this.dto(proposal, room, userId);
   }
 }

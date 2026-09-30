@@ -30,7 +30,18 @@ class DemoStore implements PersonalStore {
   readonly negotiation = new MemoryNegotiation({
     room: (userId, roomId) => this.rooms.core(userId, roomId),
     arrangements: userId => this.list(userId),
-    createArrangement: (userId, value) => this.create(userId, value),
+    createArrangements: entries => {
+      // 全部校验和预生成成功后再写，避免后一个成员满额时只写入前一个成员。
+      const counts = new Map<string, number>();
+      const pending = entries.map(({ userId, value }) => {
+        const input = validateArrangement(value);
+        const count = (counts.get(userId) ?? this.arrangements.get(userId)!.size) + 1;
+        if (count > 100) throw new BadRequestException('有成员的日程已达 100 条上限，无法写入');
+        counts.set(userId, count);
+        return { userId, item: { ...input, id: randomUUID(), createdAt: new Date().toISOString() } };
+      });
+      for (const { userId, item } of pending) this.arrangements.get(userId)!.set(item.id, item);
+    },
     name: userId => this.users.get(userId)!.name,
   });
   private readonly users = new Map<string, User>();
@@ -221,6 +232,10 @@ class RoundtableController {
   @Put(':id/proposals/:proposalId')
   decide(@Req() req: AuthRequest, @Param('id') id: string, @Param('proposalId') proposalId: string, @Body() body: unknown) {
     return this.store.negotiation.decide(req.userId!, id, proposalId, body);
+  }
+  @Delete(':id/proposals/:proposalId')
+  cancelProposal(@Req() req: AuthRequest, @Param('id') id: string, @Param('proposalId') proposalId: string) {
+    return this.store.negotiation.cancel(req.userId!, id, proposalId);
   }
 }
 

@@ -10,7 +10,7 @@
     <view class="card"><view class="row"><view class="card-title">圆桌成员</view><text class="badge">{{room.members.length}} / 3 人</text></view>
       <view wx:for="{{room.members}}" wx:key="id" class="record"><view class="row"><view class="member-name">{{item.name}}{{item.isMe ? '（我）' : ''}}<view class="muted">{{item.role === 'OWNER' ? '发起人' : '成员'}} · {{item.shareBusy ? '已授权本次忙闲' : '未授权忙闲'}}</view></view><button wx:if="{{room.isOwner && !item.isMe && room.status === 'OPEN'}}" class="link-button remove-member" data-id="{{item.id}}" bindtap="remove" disabled="{{busy}}">移除</button></view></view>
     </view>
-    <view wx:if="{{room.status === 'OPEN'}}" class="card"><view class="card-title">我的本次授权</view><view class="subtitle spaced">授权范围仅为上述日期与每天时间窗口的忙闲信息，不包含日程标题、原因或个人记忆。可随时撤回。</view><view class="notice">当前只保存授权选择，尚未读取日程或开始协商。</view><button class="secondary consent-button" bindtap="consent" disabled="{{busy || loading}}">{{shareBusy ? '撤回本次忙闲授权' : '授权本次忙闲信息'}}</button></view>
+    <view wx:if="{{room.status === 'OPEN'}}" class="card"><view class="card-title">我的本次授权</view><view class="subtitle spaced">授权范围仅为上述日期与每天时间窗口的忙闲信息，不包含日程标题、原因或个人记忆。可随时撤回。</view><view class="notice">计算共同时间时只读取已授权成员的忙闲区间；全员确认写入前会检查各自日程是否冲突。</view><button class="secondary consent-button" bindtap="consent" disabled="{{busy || loading || finding}}">{{shareBusy ? '撤回本次忙闲授权' : '授权本次忙闲信息'}}</button></view>
     <view wx:if="{{room.status === 'OPEN' && !local}}" class="card">
       <view class="card-title">共同可用时间</view>
       <view class="subtitle spaced">只交换「这个时段忙不忙」，不交换日程标题和原因。未授权成员的安排不参与计算。</view>
@@ -27,11 +27,13 @@
       </block>
     </view>
     <view wx:if="{{proposal}}" class="card">
-      <view class="row"><view class="card-title">协商方案</view><text class="badge">{{proposal.status === 'OPEN' ? (proposal.stale ? '已失效' : '待确认') : proposal.status === 'CONFIRMED' ? '已确认' : proposal.status === 'REJECTED' ? '已拒绝' : '已失效'}}</text></view>
+      <view class="row"><view class="card-title">协商方案</view><text class="badge">{{proposal.status === 'OPEN' ? (proposal.stale ? '已失效' : '待确认') : proposal.status === 'CONFIRMED' ? '已确认' : proposal.status === 'REJECTED' ? '已拒绝' : proposal.status === 'CANCELLED' ? '已撤回' : '已失效'}}</text></view>
       <view class="goal spaced">{{proposal.date}} {{proposal.startTime}}–{{proposal.endTime}}</view>
       <view wx:if="{{proposal.stale}}" class="notice">成员或授权已变化，这个方案已失效，请重新计算后再发起。</view>
       <view wx:if="{{proposal.status === 'CONFIRMED'}}" class="notice">全员接受，已写入各自日程。</view>
       <view wx:if="{{proposal.status === 'REJECTED'}}" class="notice">有人拒绝了这个时间，可以重新计算后再发起。</view>
+      <view wx:if="{{proposal.status === 'CANCELLED'}}" class="notice">提案人已撤回，可以重新计算后再发起。</view>
+      <view wx:if="{{proposal.status === 'EXPIRED'}}" class="notice">方案已失效，请重新计算后再发起。</view>
       <view wx:for="{{proposal.votes}}" wx:key="key" class="record">
         <view class="row">
           <view class="member-name">{{item.name}}{{item.isMe ? '（我）' : ''}}</view>
@@ -42,6 +44,7 @@
         <button class="secondary accept" data-decision="ACCEPT" bindtap="decide" disabled="{{busy || loading}}">接受</button>
         <button class="link-button reject" data-decision="REJECT" bindtap="decide" disabled="{{busy || loading}}">拒绝</button>
       </view>
+      <button wx:if="{{proposal.status === 'OPEN' && proposal.createdByMe}}" class="secondary cancel-proposal" bindtap="cancelProposal" disabled="{{busy || loading}}">撤回方案</button>
     </view>
     <view wx:if="{{local}}" class="notice">本机演示不会邀请其他人，也不会交换信息。</view>
     <button wx:if="{{room.isOwner && room.status === 'OPEN'}}" class="secondary close-room" bindtap="closeRoom" disabled="{{busy || loading}}">关闭圆桌</button>

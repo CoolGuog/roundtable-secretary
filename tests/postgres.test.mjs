@@ -9,6 +9,7 @@ import { roomContract, sampleRoom } from './room-contract.mjs';
 import { negotiationContract } from './negotiation-contract.mjs';
 import { secretaryContract } from './secretary-contract.mjs';
 import { StubModel } from '../apps/api/dist/secretary.js';
+import { negotiationRecoveryContract } from './negotiation-recovery-contract.mjs';
 
 test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.env.RUN_POSTGRES_TESTS }, async t => {
   assert.ok(process.env.DATABASE_URL, '需要本机 DATABASE_URL');
@@ -51,6 +52,44 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     await memoryContract(t, call, user);
     await roomContract(t, call, user);
     await negotiationContract(t, call, user);
+    await negotiationRecoveryContract(t, call, user);
+    await t.test('并发发起只保留一个开放方案，过期后直接重提，全员并发确认只写一次', async () => {
+      const a = await user('并发提案甲'), b = await user('并发提案乙');
+      const date = new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10);
+      const room = await (await call('/roundtables', 'POST', a.token, { ...sampleRoom, dateFrom: date, dateTo: date })).json();
+      await call('/roundtables/join', 'POST', b.token, { code: room.inviteCode });
+      const route = `/roundtables/${room.id}`;
+      for (const account of [a, b]) await call(route + '/membership', 'PUT', account.token, { shareBusy: true });
+      const slot = (await (await call(route + '/availability', 'GET', a.token)).json()).slots[0];
+      const results = await Promise.all([a, b].map(account => call(route + '/proposals', 'POST', account.token, slot)));
+      assert.equal(results.filter(response => response.status === 201).length, 1);
+      assert.ok(results.every(response => [201, 400].includes(response.status)));
+      const old = await results.find(response => response.status === 201).json();
+      await db.proposal.update({ where: { id: old.id }, data: { expiresAt: new Date(0) } });
+      const fresh = await call(route + '/proposals', 'POST', a.token, slot);
+      assert.equal(fresh.status, 201);
+      const proposal = await fresh.json();
+      const votes = await Promise.all([a, b].map(account => call(`${route}/proposals/${proposal.id}`, 'PUT', account.token, { decision: 'ACCEPT' })));
+      assert.ok(votes.every(response => response.status === 200));
+      assert.equal((await (await call(route + '/proposal', 'GET', a.token)).json()).status, 'CONFIRMED');
+      for (const account of [a, b]) assert.equal(await db.arrangement.count({ where: { ownerId: account.user.id } }), 1);
+    });
+    await t.test('撤回与最终确认竞争时整体确认或整体撤回，不留下部分日程', async () => {
+      const a = await user('竞争甲'), b = await user('竞争乙');
+      const date = new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10);
+      const room = await (await call('/roundtables', 'POST', a.token, { ...sampleRoom, dateFrom: date, dateTo: date })).json();
+      await call('/roundtables/join', 'POST', b.token, { code: room.inviteCode });
+      const route = `/roundtables/${room.id}`;
+      for (const account of [a, b]) await call(route + '/membership', 'PUT', account.token, { shareBusy: true });
+      const slot = (await (await call(route + '/availability', 'GET', a.token)).json()).slots[0];
+      const proposal = await (await call(route + '/proposals', 'POST', a.token, slot)).json();
+      await call(`${route}/proposals/${proposal.id}`, 'PUT', a.token, { decision: 'ACCEPT' });
+      const results = await Promise.all([call(`${route}/proposals/${proposal.id}`, 'DELETE', a.token), call(`${route}/proposals/${proposal.id}`, 'PUT', b.token, { decision: 'ACCEPT' })]);
+      assert.ok(results.every(response => [200, 400].includes(response.status)));
+      const current = await (await call(route + '/proposal', 'GET', a.token)).json();
+      assert.ok(['CONFIRMED', 'CANCELLED'].includes(current.status));
+      for (const account of [a, b]) assert.equal(await db.arrangement.count({ where: { ownerId: account.user.id } }), current.status === 'CONFIRMED' ? 1 : 0);
+    });
     await secretaryContract(t, call, user);
     await t.test('圆桌并发加入不超员，重复加入不重复创建，重启保留，邀请过期失效', async () => {
       const a = await user('并发发起'), b = await user('并发伙伴');
