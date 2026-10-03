@@ -1,6 +1,26 @@
 <view class="page">
   <text class="eyebrow">AROUND THE TABLE</text><view class="title">各有安排，<view>坐下来商量。</view></view>
-  <view class="subtitle">每个人带着自己的秘书，形成共同的决定。</view>
-  <view class="card"><text class="badge">下一阶段</text><view class="card-title spaced">圆桌还在准备中</view><view class="subtitle spaced">完成个人日程与真实身份接入后，我们会加入活动邀请、成员权限和秘书协商。</view></view>
-  <view class="card"><view class="card-title">一场圆桌将这样开始</view><view class="subtitle spaced">1. 发起活动，说明目标与时间范围</view><view class="subtitle spaced">2. 分享邀请，成员带秘书加入</view><view class="subtitle spaced">3. 秘书提出方案，主人按需确认</view><view class="subtitle spaced">4. 保存共同日程，分别通知</view></view>
+  <view class="subtitle">发起一次活动，邀请两三位伙伴。</view><view class="muted spaced">{{mode}}</view>
+  <view wx:if="{{local}}" class="notice">本机模式可预览圆桌流程。邀请码和多人加入需要后台模式。</view>
+  <view wx:else class="notice">加入后可看到成员昵称；日程与记忆默认不共享。协商和全员确认功能仍在建设中。</view>
+  <view wx:if="{{!form}}" class="two-col"><view><button class="primary create-room" bindtap="newRoom" disabled="{{busy || loading}}">发起圆桌</button></view><view wx:if="{{!local}}"><button class="secondary join-room" bindtap="joinForm" disabled="{{busy || loading}}">邀请码加入</button></view></view>
+  <view wx:if="{{form}}" class="card">
+    <view class="card-title">{{form === 'create' ? '一次共同活动' : '加入圆桌'}}</view>
+    <block wx:if="{{form === 'create'}}">
+      <text class="field-label">活动名称</text><input class="field room-title" value="{{title}}" bindinput="onTitle" maxlength="60" placeholder="例如：周末一起打球" disabled="{{busy}}" />
+      <text class="field-label">活动目标</text><textarea class="field room-goal" value="{{goal}}" bindinput="onGoal" maxlength="500" placeholder="想和伙伴一起完成什么？" disabled="{{busy}}" />
+      <view class="two-col"><view><text class="field-label">开始日期</text><picker mode="date" value="{{dateFrom}}" bindchange="onFrom" disabled="{{busy}}"><view class="field">{{dateFrom}}</view></picker></view><view><text class="field-label">结束日期</text><picker mode="date" value="{{dateTo}}" bindchange="onTo" disabled="{{busy}}"><view class="field">{{dateTo}}</view></picker></view></view>
+      <view class="two-col"><view><text class="field-label">每天最早（北京时间）</text><picker mode="time" value="{{startTime}}" bindchange="onStart" disabled="{{busy}}"><view class="field">{{startTime}}</view></picker></view><view><text class="field-label">每天最晚</text><picker mode="time" value="{{endTime}}" bindchange="onEnd" disabled="{{busy}}"><view class="field">{{endTime}}</view></picker></view></view>
+      <text class="field-label">活动时长</text><picker range="{{durations}}" value="{{durationIndex}}" bindchange="onDuration" disabled="{{busy}}"><view class="field">{{durations[durationIndex]}}</view></picker>
+    </block>
+    <block wx:else><text class="field-label">20 位邀请码</text><input class="field room-code" value="{{code}}" bindinput="onCode" maxlength="20" placeholder="粘贴发起人提供的邀请码" disabled="{{busy}}" /></block>
+    <button class="primary submit-room" bindtap="submit" loading="{{busy}}" disabled="{{busy}}">{{form === 'create' ? '创建圆桌' : '确认加入'}}</button><button class="secondary" bindtap="cancel" disabled="{{busy}}">取消</button>
+  </view>
+  <view wx:if="{{error}}" class="error">{{error}}</view><button wx:if="{{error && !form}}" class="secondary" bindtap="reload" disabled="{{busy || loading}}">重新加载</button>
+  <view class="section-label">我参与的圆桌</view>
+  <view wx:if="{{loading}}" class="empty">正在读取…</view><view wx:elif="{{!rooms.length && !error}}" class="empty">还没有圆桌。<view>从一次共同活动开始。</view></view>
+  <view wx:for="{{rooms}}" wx:key="id" class="card room-card" data-id="{{item.id}}" bindtap="open">
+    <view class="row"><view class="card-title room-name">{{item.title}}</view><text class="badge">{{item.status === 'OPEN' ? '进行中' : '已关闭'}}</text></view>
+    <view class="subtitle spaced">{{item.dateFrom}} 至 {{item.dateTo}}</view><view class="muted">{{item.members.length}} / 3 人 · {{item.durationMinutes}} 分钟 · {{item.isOwner ? '我发起的' : '我加入的'}}</view>
+  </view>
 </view>

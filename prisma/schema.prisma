@@ -1,7 +1,6 @@
-// 圆桌秘书 · 数据模型（草稿 v0，待 A/B 对齐后定稿）
+// 圆桌秘书 · 数据模型
 //
-// 本阶段范围：用户、个人记忆、个人日程。
-// 圆桌、成员、提案、确认属于阶段二及以后，待接口约定确定后再补，避免此处先入为主。
+// 当前范围：用户、个人记忆、个人日程、圆桌与成员。提案和确认另行扩展。
 //
 // 命名约定：
 //   - 数据库表名 / 列名用 snake_case（靠 @map / @@map）
@@ -67,7 +66,8 @@ model User {
   id String @id @default(uuid()) @db.Uuid
 
   /// 微信身份。阶段三回填；同一微信用户唯一。
-  wxOpenId  String? @unique @map("wx_open_id") @db.VarChar(64)
+  wxAppId String? @map("wx_app_id") @db.VarChar(18)
+  wxOpenId  String? @map("wx_open_id") @db.VarChar(64)
   wxUnionId String? @unique @map("wx_union_id") @db.VarChar(64)
 
   /// 展示名（对应现有演示接口的 name，校验为 1~20 字）
@@ -81,8 +81,136 @@ model User {
   memories     PersonalMemory[]
   arrangements Arrangement[]
   demoSessions DemoSession[]
+  wechatSessions WechatSession[]
+  ownedRoundtables Roundtable[]
+  roundtableMemberships RoundtableMember[]
+  proposalVotes ProposalVote[]
+  createdProposals Proposal[] @relation("proposal_creator")
 
+  @@unique([wxAppId, wxOpenId])
   @@map("users")
+}
+
+enum RoundtableStatus {
+  OPEN
+  CLOSED
+  @@map("roundtable_status")
+}
+
+/// 协商方案的状态。一个圆桌同时最多一个 OPEN 方案，
+/// 成员变动或授权变化会让旧方案失效（stale），防止基于过期信息写入日程。
+enum ProposalStatus {
+  /// 待全员确认
+  OPEN
+  /// 全员接受并已写入各自日程
+  CONFIRMED
+  /// 有人拒绝，需重新协商
+  REJECTED
+  /// 超过有效期或圆桌成员已变化，不能继续确认
+  EXPIRED
+  /// 被更新的方案取代
+  CANCELLED
+  @@map("proposal_status")
+}
+
+enum ProposalDecision {
+  PENDING
+  ACCEPT
+  REJECT
+  @@map("proposal_decision")
+}
+
+model Roundtable {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  title String @db.VarChar(60)
+  goal String @db.VarChar(500)
+  dateFrom String @map("date_from") @db.VarChar(10)
+  dateTo String @map("date_to") @db.VarChar(10)
+  startTime String @map("start_time") @db.VarChar(5)
+  endTime String @map("end_time") @db.VarChar(5)
+  durationMinutes Int @map("duration_minutes")
+  status RoundtableStatus @default(OPEN)
+  version Int @default(1)
+  inviteCode String @unique @map("invite_code") @db.VarChar(20)
+  inviteExpiresAt DateTime @map("invite_expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members RoundtableMember[]
+  proposals Proposal[]
+  @@index([ownerId])
+  @@map("roundtables")
+}
+
+/// 一次协商提出的候选方案。只存时间，不存任何成员的安排标题或原因。
+model Proposal {
+  id String @id @default(uuid()) @db.Uuid
+  roomId String @map("room_id") @db.Uuid
+
+  /// 候选时段（北京时间，YYYY-MM-DD + HH:mm）
+  date String @db.VarChar(10)
+  startTime String @map("start_time") @db.VarChar(5)
+  endTime String @map("end_time") @db.VarChar(5)
+
+  /// 生成方案时的圆桌版本。圆桌 version 变化即代表成员或授权已变，方案作废。
+  roomVersion Int @map("room_version")
+  status ProposalStatus @default(OPEN)
+  createdById String @map("created_by") @db.Uuid
+  createdBy User @relation("proposal_creator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  /// 写入日程的时间点，用于确认幂等：已写入的方案不会重复写
+  appliedAt DateTime? @map("applied_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  room Roundtable @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  votes ProposalVote[]
+  @@index([roomId, status])
+  @@map("proposals")
+}
+
+/// 每个成员对方案的确认结果。一人一票，可改票（方案仍 OPEN 时）。
+model ProposalVote {
+  id String @id @default(uuid()) @db.Uuid
+  proposalId String @map("proposal_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  decision ProposalDecision @default(PENDING)
+  decidedAt DateTime? @map("decided_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([proposalId, userId])
+  @@index([userId])
+  @@map("proposal_votes")
+}
+
+model RoundtableMember {
+  id String @id @default(uuid()) @db.Uuid
+  roomId String @map("room_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  shareBusy Boolean @default(false) @map("share_busy")
+  consentUpdatedAt DateTime? @map("consent_updated_at") @db.Timestamptz(3)
+  joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
+  room Roundtable @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@map("roundtable_members")
+}
+
+/// 微信登录会话与演示会话完全分离，只保存自建令牌摘要。
+model WechatSession {
+  tokenHash String @id @map("token_hash") @db.VarChar(64)
+  userId String @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("wechat_sessions")
 }
 
 /// 仅限本机演示；保存令牌的 SHA-256 摘要，不保存明文令牌。

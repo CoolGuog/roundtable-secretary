@@ -4,7 +4,7 @@ $pgInstall = Join-Path $env:LOCALAPPDATA 'RoundtableSecretary/postgres17'
 $pgControl = Join-Path $pgInstall 'pgsql/bin/pg_ctl.exe'
 $pgData = Join-Path $pgInstall 'data'
 if (!(Test-Path -LiteralPath $pgControl) -or !(Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION'))) {
-    throw '尚未初始化本机 PostgreSQL，请先完成安装配置。'
+    throw 'Local PostgreSQL is not initialized. Complete setup first.'
 }
 switch ($Action) {
     'start' { & $pgControl -D $pgData -l (Join-Path $pgInstall 'server.log') -w start }

@@ -1,0 +1,6 @@
+.memory-content { width: 100%; height: 230rpx; box-sizing: border-box; line-height: 1.7; }
+.memory-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin: 24rpx 0; }
+.memory-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.badge { flex-shrink: 0; }
+.actions { display: flex; justify-content: flex-end; gap: 24rpx; margin-top: 20rpx; }
+.edit-memory { color: #315541; }

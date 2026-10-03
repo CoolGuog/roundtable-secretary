@@ -7,9 +7,9 @@ Page({
     items: [] as Arrangement[], loading: false, error: '', mode: modeLabel(),
     editingId: '', editTitle: '', editDate: '', editStart: '', editEnd: '', saving: false,
   },
-  onShow() { this.reload(); },
+  onShow() { this.setData({ editingId: '', editTitle: '', editDate: '', editStart: '', editEnd: '' }); this.reload(); },
   async reload() {
-    this.setData({ loading: true, error: '' });
+    this.setData({ loading: true, error: '', items: [] });
     try { this.setData({ items: await listArrangements() }); }
     catch (error) { this.setData({ error: errorMessage(error) }); }
     finally { this.setData({ loading: false }); }
