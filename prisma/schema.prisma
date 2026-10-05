@@ -80,6 +80,7 @@ model User {
 
   memories     PersonalMemory[]
   arrangements Arrangement[]
+  arrangementCreateRequests ArrangementCreateRequest[]
   demoSessions DemoSession[]
   wechatSessions WechatSession[]
   ownedRoundtables Roundtable[]
@@ -254,10 +255,25 @@ model Arrangement {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createRequests ArrangementCreateRequest[]
 
   /// 忙闲摘要与冲突检测的主要查询路径
   @@index([ownerId, startsAt])
   @@map("arrangements")
+}
+
+/// 保存请求的持久记录；删除日程后保留编号，防止迟到重试将其重新创建。
+model ArrangementCreateRequest {
+  userId String @map("user_id") @db.Uuid
+  requestKey String @map("request_key") @db.Uuid
+  fingerprint String @db.VarChar(64)
+  arrangementId String? @map("arrangement_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  arrangement Arrangement? @relation(fields: [arrangementId], references: [id], onDelete: SetNull)
+  @@id([userId, requestKey])
+  @@index([arrangementId])
+  @@map("arrangement_create_requests")
 }
 
 /// 个人记忆 / 偏好。按用户隔离；保留来源与更新时间；用户可查看、修改、删除。

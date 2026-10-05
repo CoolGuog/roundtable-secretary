@@ -12,12 +12,13 @@ export interface PersonalStore {
   /** 共同可用时间与方案确认（第 15、16 步） */
   readonly negotiation: NegotiationStore;
   readonly persistence: 'memory' | 'postgres';
+  checkReady(): void | Promise<void>;
   createSession(value: unknown): unknown;
   authenticate(token: string): string | Promise<string>;
   revokeSession(token: string): void | Promise<void>;
   profile(userId: string): User | Promise<User>;
   list(userId: string): Arrangement[] | Promise<Arrangement[]>;
-  create(userId: string, value: unknown): Arrangement | Promise<Arrangement>;
+  create(userId: string, value: unknown, requestId?: unknown): Arrangement | Promise<Arrangement>;
   update(userId: string, id: string, value: unknown): Arrangement | Promise<Arrangement>;
   remove(userId: string, id: string): void | Promise<void>;
   listMemories(userId: string): PersonalMemory[] | Promise<PersonalMemory[]>;

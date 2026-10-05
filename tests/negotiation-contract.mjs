@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { sampleRoom } from './room-contract.mjs';
+import { sampleRoom, sampleRoomDates } from './room-contract.mjs';
 
 const room = { ...sampleRoom };
 const DAY = room.dateFrom;
@@ -51,7 +51,7 @@ export async function negotiationContract(t, call, user) {
     assert.ok(none.slots.length > 0);
     // 双方三天都排满
     for (const token of [owner.token, b.token]) {
-      for (const date of [room.dateFrom, '2026-10-02', room.dateTo]) {
+      for (const date of sampleRoomDates) {
         await call('/me/arrangements', 'POST', token, arrangement(date, '09:00', '18:00'));
       }
     }
@@ -167,9 +167,9 @@ export async function negotiationContract(t, call, user) {
     assert.equal((await call(`/roundtables/${id}/proposal`, 'GET', outsider.token)).status, 404);
     assert.equal((await call(`/roundtables/${id}/proposal`, 'GET', a.token)).status, 204);
     assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, {})).status, 400);
-    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: '2026-10-01', startTime: '9:00', endTime: '10:00' })).status, 400);
-    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: '2026-10-01', startTime: '10:00', endTime: '10:00' })).status, 400);
-    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: '2026-10-01', startTime: '09:00', endTime: '10:00', title: 'x' })).status, 400);
+    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: DAY, startTime: '9:00', endTime: '10:00' })).status, 400);
+    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: DAY, startTime: '10:00', endTime: '10:00' })).status, 400);
+    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: DAY, startTime: '09:00', endTime: '10:00', title: 'x' })).status, 400);
     assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', outsider.token, (await availability(call, a.token, id)).slots[0])).status, 404);
     const slot = (await availability(call, a.token, id)).slots[0];
     const proposal = await (await call(`/roundtables/${id}/proposals`, 'POST', a.token, slot)).json();

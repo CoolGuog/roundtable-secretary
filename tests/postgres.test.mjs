@@ -10,6 +10,7 @@ import { negotiationContract } from './negotiation-contract.mjs';
 import { secretaryContract } from './secretary-contract.mjs';
 import { StubModel } from '../apps/api/dist/secretary.js';
 import { negotiationRecoveryContract } from './negotiation-recovery-contract.mjs';
+import { arrangementRetryContract } from './arrangement-retry-contract.mjs';
 
 test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.env.RUN_POSTGRES_TESTS }, async t => {
   assert.ok(process.env.DATABASE_URL, '需要本机 DATABASE_URL');
@@ -28,8 +29,8 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     await app.listen(0, '127.0.0.1');
     base = await app.getUrl();
   };
-  const call = (route, method = 'GET', token, body) => fetch(base + route, {
-    method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  const call = (route, method = 'GET', token, body, headers = {}) => fetch(base + route, {
+    method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const user = async name => {
@@ -49,6 +50,32 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     });
     assert.equal(drift.status, 0, '迁移后的数据库结构与 Prisma 模型不一致');
     await start();
+    await t.test('就绪探测检查完整业务表，缺失保存重试表时返回 503 且新实例拒绝启动，恢复后可用', async () => {
+      assert.deepEqual(await (await call('/ready')).json(), { status: 'ready', persistence: 'postgres' });
+      await db.$executeRawUnsafe(`ALTER TABLE "${schema}".arrangement_create_requests RENAME TO readiness_hidden_requests`);
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1100));
+        const response = await call('/ready'); assert.equal(response.status, 503);
+        assert.equal((await response.json()).message, '后台存储暂未就绪');
+        assert.equal((await call('/health')).status, 200);
+        await assert.rejects(createApp({ storage: 'postgres', databaseUrl, authMode: 'demo', secretary: { mode: 'off' } }), /数据库连接或迁移未就绪/);
+      } finally {
+        await db.$executeRawUnsafe(`ALTER TABLE "${schema}".readiness_hidden_requests RENAME TO arrangement_create_requests`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      assert.equal((await call('/ready')).status, 200);
+      assert.equal(await db.user.count(), 0, '探测不能创建用户或测试会话');
+    });
+    await arrangementRetryContract(t, call, user);
+    await t.test('保存编号跨后台重启保留，日程和请求记录在同一事务内持久化', async () => {
+      const a = await user('持久重试'), key = randomUUID(), headers = { 'Idempotency-Key': key };
+      const original = await (await call('/me/arrangements', 'POST', a.token, sample, headers)).json();
+      await app.close(); app = undefined; await start();
+      const retry = await call('/me/arrangements', 'POST', a.token, sample, headers);
+      assert.equal(retry.status, 201); assert.equal((await retry.json()).id, original.id);
+      assert.equal(await db.arrangement.count({ where: { ownerId: a.user.id } }), 1);
+      assert.equal(await db.arrangementCreateRequest.count({ where: { userId: a.user.id } }), 1);
+    });
     await memoryContract(t, call, user);
     await roomContract(t, call, user);
     await negotiationContract(t, call, user);
@@ -280,6 +307,30 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
       assert.equal((await call('/roundtables/join', 'POST', anotherApp.token, { code: wechatRoom.inviteCode })).status, 404);
       assert.deepEqual(await (await call('/me/arrangements', 'GET', anotherApp.token)).json(), []);
       assert.deepEqual(await (await call('/me/memories', 'GET', anotherApp.token)).json(), []);
+    });
+    await t.test('生产配置实际启动、关闭演示入口、无效登录限流且不创建账号', async () => {
+      await app.close(); app = undefined;
+      const keys = ['NODE_ENV', 'PUBLIC_API_ORIGIN', 'HOST'];
+      const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+      Object.assign(process.env, { NODE_ENV: 'production', PUBLIC_API_ORIGIN: 'https://api.example.com', HOST: '127.0.0.1' });
+      let productionApp;
+      try {
+        productionApp = await createApp({ storage: 'postgres', databaseUrl, authMode: 'wechat',
+          wechatAppId: 'wx0123456789abcdef', wechatSecret: 'a'.repeat(32), secretary: { mode: 'off' } });
+        await productionApp.listen(0, '127.0.0.1');
+        const origin = await productionApp.getUrl();
+        const count = await db.user.count();
+        assert.equal((await (await fetch(origin + '/health')).json()).deployment, 'production');
+        assert.equal((await fetch(origin + '/ready')).status, 200);
+        const post = route => fetch(origin + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        assert.equal((await post('/dev/sessions')).status, 404);
+        for (let i = 0; i < 60; i++) assert.equal((await post('/auth/wechat')).status, 400);
+        assert.equal((await post('/auth/wechat')).status, 429);
+        assert.equal(await db.user.count(), count, '无效请求不能调用换码或创建用户');
+      } finally {
+        await productionApp?.close();
+        for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; }
+      }
     });
   } finally {
     await app?.close();
