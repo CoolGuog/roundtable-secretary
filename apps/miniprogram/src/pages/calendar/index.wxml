@@ -1,15 +1,31 @@
 <view class="page">
   <text class="eyebrow">MY CALENDAR</text><view class="title">给时间留个位置。</view>
   <view class="subtitle">{{mode}} · 当前按北京时间（UTC+8）记录。</view>
+  <view class="card calendar-tools">
+    <input class="field calendar-search" value="{{query}}" maxlength="60" placeholder="搜索安排名称" bindinput="onSearch" confirm-type="search" />
+    <view class="calendar-filters">
+      <button wx:for="{{filters}}" wx:key="value" class="filter-button {{filter === item.value ? 'selected' : ''}}" data-filter="{{item.value}}" bindtap="onFilter">{{item.label}} {{counts[item.value]}}</button>
+    </view>
+    <view class="row date-tools">
+      <picker class="date-filter" mode="date" value="{{selectedDate}}" start="2020-01-01" end="2099-12-31" bindchange="onSelectedDate"><view class="date-label">{{selectedDate || '选择具体日期'}} ▾</view></picker>
+      <button wx:if="{{filterActive}}" class="link-button clear-filters" bindtap="clearFilters">清除筛选</button>
+    </view>
+    <view class="muted">未结束包含进行中的安排；搜索、分类和日期可同时使用。</view>
+  </view>
   <view class="card">
-    <view class="card-title">个人安排</view>
+    <view class="row"><view class="card-title">个人安排</view><button class="link-button refresh-calendar" bindtap="reload" disabled="{{loading || saving || deletingId}}">刷新</button></view>
+    <view wx:if="{{!loading && !error}}" class="muted result-count">显示 {{matchingCount}} / {{items.length}} 条</view>
     <view wx:if="{{loading}}" class="empty">正在读取…</view>
-    <view wx:elif="{{items.length === 0}}" class="empty">还没有安排。<view>从一条虚构的日程开始体验。</view></view>
-    <view wx:for="{{items}}" wx:key="id" class="record row">
-      <view><view class="record-title">{{item.title}}</view><view class="muted">{{item.date}} · {{item.startTime}}—{{item.endTime}}</view></view>
-      <view class="record-actions">
-        <button class="link-button" data-id="{{item.id}}" bindtap="openEdit">编辑</button>
-        <button class="link-button" data-id="{{item.id}}" bindtap="remove">删除</button>
+    <view wx:elif="{{items.length === 0 && !error}}" class="empty">还没有安排。<view>回到秘书，添加你的第一条日程。</view></view>
+    <view wx:elif="{{matchingCount === 0 && !error}}" class="empty no-matches">没有符合条件的安排。<view>可更换关键词、日期，或清除筛选。</view></view>
+    <view wx:for="{{groups}}" wx:key="date" class="day-group">
+      <view class="day-heading">{{item.label}}<text class="day-count">{{item.records.length}} 条</text></view>
+      <view wx:for="{{item.records}}" wx:for-item="record" wx:key="id" class="record row">
+        <view class="record-content"><view class="record-title">{{record.title}}</view><view class="muted">{{record.startTime}}—{{record.endTime}}</view><text class="record-state {{record.state}}">{{record.stateLabel}}</text></view>
+        <view class="record-actions">
+          <button class="link-button" data-id="{{record.id}}" bindtap="openEdit" disabled="{{saving || deletingId || loading}}">编辑</button>
+          <button class="link-button" data-id="{{record.id}}" bindtap="remove" disabled="{{saving || deletingId || loading}}">删除</button>
+        </view>
       </view>
     </view>
     <button class="secondary" bindtap="add">回到秘书，添加安排</button>
@@ -17,7 +33,7 @@
   <view class="card" wx:if="{{editingId}}">
     <view class="card-title">修改这条安排</view>
     <text class="field-label">安排名称</text>
-    <input class="field" value="{{editTitle}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onEditTitle" />
+    <input class="field calendar-edit-title" value="{{editTitle}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onEditTitle" />
     <text class="field-label">日期</text>
     <picker mode="date" value="{{editDate}}" start="2020-01-01" end="2099-12-31" bindchange="onEditDate"><view class="field">{{editDate}}</view></picker>
     <view class="two-col">
@@ -25,8 +41,8 @@
       <view><text class="field-label">结束</text><picker mode="time" value="{{editEnd}}" bindchange="onEditEnd"><view class="field">{{editEnd}}</view></picker></view>
     </view>
     <view class="muted spaced">按北京时间（UTC+8）记录。不修改的字段会保持原值。</view>
-    <button class="primary" loading="{{saving}}" disabled="{{saving}}" bindtap="submitEdit">保存修改</button>
-    <button class="secondary" disabled="{{saving}}" bindtap="closeEdit">取消</button>
+    <button class="primary" loading="{{saving}}" disabled="{{saving || deletingId || loading}}" bindtap="submitEdit">保存修改</button>
+    <button class="secondary" disabled="{{saving || deletingId}}" bindtap="closeEdit">取消</button>
   </view>
   <view class="error" wx:if="{{error}}">{{error}}</view>
 </view>

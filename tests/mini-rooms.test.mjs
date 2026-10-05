@@ -16,6 +16,9 @@ function client(mode = 'local') {
 }
 function secretaryClient(mode = 'local') {
   const storage = new Map(), calls = [], exports = {};
+  const rules = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync('apps/miniprogram/src/services/local-draft.ts', 'utf8'),
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: rules });
   const source = fs.readFileSync('apps/miniprogram/src/services/secretary.ts', 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const token = 'a'.repeat(64);
@@ -31,13 +34,20 @@ function secretaryClient(mode = 'local') {
         options.success(options.url.includes('/dev/sessions') ? { statusCode: 201, data: { token } } : { statusCode: 200, data: draft });
       },
     },
-    require: name => name === './config' ? { config: { mode, authMode: 'demo', apiBase: 'http://127.0.0.1:3000' } } : {},
+    require: name => name === './config' ? { config: { mode, authMode: 'demo', apiBase: 'http://127.0.0.1:3000' } } : rules,
   });
-  return { api: exports, calls };
+  return { api: exports, calls, storage };
 }
-test('秘书草稿走约定路由，本机演示不假装听懂', async () => {
+test('秘书后台草稿路由保持兼容，本机分步草稿不联网且确认前不存储', async () => {
   const local = secretaryClient();
-  await assert.rejects(local.api.draftFromText('明天下午三点开会'), /本机演示未连接模型/);
+  const first = await local.api.draftFromText('明天下午三点开会');
+  assert.equal(first.model, '本机规则'); assert.equal(first.endTime, null);
+  const completed = await local.api.draftFromText('持续一小时', first);
+  assert.equal(completed.status, 'READY'); assert.equal(completed.endTime, '16:00');
+  assert.equal(local.storage.size, 0);
+  assert.equal((await local.api.loadSecretaryStatus()).canGenerate, true);
+  await local.api.saveArrangement(completed);
+  assert.equal((await local.api.listArrangements()).length, 1);
   await assert.rejects(local.api.draftFromText('   '), /请先说一句/);
   await assert.rejects(local.api.draftFromText('安'.repeat(201)), /200 字/);
   assert.equal(local.calls.length, 0, '本机演示模式不应该发起任何请求');

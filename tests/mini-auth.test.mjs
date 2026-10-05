@@ -28,6 +28,25 @@ function client(handler, initial = {}) {
 }
 const ok = (options, data) => options.success({ statusCode: 200, data });
 
+test('保存响应丢失后手动重试复用编号，成功后的新保存使用新编号', async () => {
+  let fail = true;
+  const c = client(options => { if (fail) options.fail(); else ok(options, {}); }, { [key]: token });
+  await assert.rejects(c.api.saveArrangement(sample)); fail = false; await c.api.saveArrangement(sample);
+  const first = c.calls[0].header['Idempotency-Key'];
+  assert.match(first, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+  assert.equal(c.calls[1].header['Idempotency-Key'], first); assert.equal(c.calls.length, 2);
+  await c.api.saveArrangement(sample); assert.notEqual(c.calls[2].header['Idempotency-Key'], first);
+});
+
+test('并发提交相同内容共用编号，编辑内容不会重用旧编号', async () => {
+  const c = client(options => ok(options, {}), { [key]: token });
+  await Promise.all([c.api.saveArrangement(sample), c.api.saveArrangement(sample)]);
+  assert.equal(c.calls[0].header['Idempotency-Key'], c.calls[1].header['Idempotency-Key']);
+  const failed = client(options => options.fail(), { [key]: token });
+  await assert.rejects(failed.api.saveArrangement(sample)); await assert.rejects(failed.api.saveArrangement({ ...sample, title: '另一条安排' }));
+  assert.notEqual(failed.calls[0].header['Idempotency-Key'], failed.calls[1].header['Idempotency-Key']);
+});
+
 test('并发读取共用一次 wx.login，不串成多个会话', async () => {
   const c = client(options => ok(options, options.url.endsWith('/auth/wechat') ? { token } : []));
   await Promise.all([c.api.listArrangements(), c.api.listArrangements()]);
@@ -55,8 +74,19 @@ test('写入遇到 401 不自动重放，网络失败不清除有效令牌', asy
   assert.equal(c.logins(), 0);
   assert.equal(c.storage.has(key), false);
   const failed = client(options => options.fail(), { [key]: token });
-  await assert.rejects(failed.api.listArrangements(), /无法连接/);
+  await assert.rejects(failed.api.listArrangements(), error => error instanceof failed.api.RequestError && error.statusCode === 0 && /未收到后台响应/.test(error.message));
   assert.equal(failed.storage.get(key), token);
+});
+
+test('权限拒绝与服务故障携带状态码，网络超时写请求不自动重发', async () => {
+  for (const statusCode of [403, 404, 503]) {
+    const c = client(options => options.success({ statusCode, data: { message: '请求被拒绝' } }), { [key]: token });
+    await assert.rejects(c.api.request('/roundtables/r', 'GET'), error => error instanceof c.api.RequestError && error.statusCode === statusCode);
+    assert.equal(c.calls.length, 1); assert.equal(c.storage.get(key), token);
+  }
+  const c = client(options => options.fail(), { [key]: token });
+  await assert.rejects(c.api.request('/roundtables/r/proposals/p', 'PUT', { decision: 'ACCEPT' }), error => error.statusCode === 0);
+  assert.equal(c.calls.length, 1); assert.equal(c.storage.get(key), token);
 });
 test('退出登录撤销服务端会话，清理演示数据不影响微信会话', async () => {
   const c = client(options => ok(options, undefined), { [key]: token, 'roundtable.demo.arrangements.v1': [sample] });

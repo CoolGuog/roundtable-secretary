@@ -1,4 +1,17 @@
 .empty { white-space: pre-line; }
-.record > view { flex: 1; min-width: 0; }
+.record-content { flex: 1; min-width: 0; }
 .record-title { overflow-wrap: break-word; }
 .record-actions { display: flex; align-items: center; flex-shrink: 0; gap: 4rpx; }
+.calendar-tools { padding: 24rpx; }
+.calendar-filters { display: flex; gap: 8rpx; margin-top: 20rpx; }
+.filter-button { flex: 1; margin: 0; padding: 0 4rpx; border-radius: 14rpx; background: #f1f3ed; color: #526257; font-size: 23rpx; line-height: 72rpx; }
+.filter-button.selected { background: #214e3d; color: white; }
+.date-tools { margin: 18rpx 0 12rpx; min-height: 56rpx; }
+.date-filter { flex: 1; }
+.date-label { color: #315541; font-size: 25rpx; padding: 10rpx 0; }
+.clear-filters { font-size: 23rpx; }
+.day-heading { margin-top: 28rpx; padding: 14rpx 16rpx; background: #f1f3ed; border-radius: 12rpx; color: #3c5848; font-size: 25rpx; }
+.day-count { float: right; color: #758077; font-size: 23rpx; }
+.record-state { display: inline-block; margin-top: 8rpx; color: #536c58; font-size: 22rpx; }
+.record-state.ongoing { color: #236b49; font-weight: 600; }
+.record-state.past { color: #858b83; }

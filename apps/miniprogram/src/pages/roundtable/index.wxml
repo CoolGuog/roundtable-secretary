@@ -1,27 +1,29 @@
 <view class="page">
   <view wx:if="{{loading}}" class="empty">正在读取圆桌…</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{syncError}}" class="error">{{syncError}}<view wx:if="{{room}}">当前显示上次读取的内容，请刷新成功后再操作。</view></view>
+  <view wx:if="{{!local && room}}" class="muted">{{syncing ? '正在同步伙伴的最新状态…' : !fresh ? '状态尚未更新' : room.status === 'CLOSED' ? '圆桌已关闭，可手动刷新' : '本页会自动更新伙伴的状态'}}<view wx:if="{{lastSync}}">上次更新 {{lastSync}}（北京时间） · 可下拉刷新</view></view>
   <button class="secondary refresh-room" bindtap="reload" disabled="{{busy || loading}}">刷新圆桌</button>
   <block wx:if="{{room}}">
     <text class="eyebrow">AROUND THE TABLE</text><view class="title">{{room.title}}</view>
     <text class="badge">{{room.status === 'OPEN' ? '进行中' : '已关闭'}}</text>
     <view class="card"><view class="card-title">活动目标</view><view class="goal spaced">{{room.goal}}</view><view class="subtitle spaced">{{room.dateFrom}} 至 {{room.dateTo}}</view><view class="muted">每天 {{room.startTime}} — {{room.endTime}}（北京时间）<view>活动时长 {{room.durationMinutes}} 分钟</view></view></view>
-    <view wx:if="{{room.inviteCode}}" class="card"><view class="card-title">邀请伙伴</view><view class="invite-code">{{room.inviteCode}}</view><view class="muted">{{expiresLabel}} 前有效（北京时间）<view>仅分享给你希望加入的伙伴。</view></view><button class="secondary copy-code" bindtap="copyCode" disabled="{{busy}}">复制邀请码</button><button class="link-button rotate-code" bindtap="rotate" disabled="{{busy}}">更新邀请码</button></view>
+    <view wx:if="{{room.inviteCode}}" class="card"><view class="card-title">邀请伙伴</view><view class="invite-code">{{room.inviteCode}}</view><view class="muted">{{expiresLabel}} 前有效（北京时间）<view>仅分享给你希望加入的伙伴。</view></view><button class="secondary copy-code" bindtap="copyCode" disabled="{{busy || loading || finding || !fresh}}">复制邀请码</button><button class="link-button rotate-code" bindtap="rotate" disabled="{{busy || loading || finding || !fresh}}">更新邀请码</button></view>
     <view class="card"><view class="row"><view class="card-title">圆桌成员</view><text class="badge">{{room.members.length}} / 3 人</text></view>
-      <view wx:for="{{room.members}}" wx:key="id" class="record"><view class="row"><view class="member-name">{{item.name}}{{item.isMe ? '（我）' : ''}}<view class="muted">{{item.role === 'OWNER' ? '发起人' : '成员'}} · {{item.shareBusy ? '已授权本次忙闲' : '未授权忙闲'}}</view></view><button wx:if="{{room.isOwner && !item.isMe && room.status === 'OPEN'}}" class="link-button remove-member" data-id="{{item.id}}" bindtap="remove" disabled="{{busy}}">移除</button></view></view>
+      <view wx:for="{{room.members}}" wx:key="id" class="record"><view class="row"><view class="member-name">{{item.name}}{{item.isMe ? '（我）' : ''}}<view class="muted">{{item.role === 'OWNER' ? '发起人' : '成员'}} · {{item.shareBusy ? '已授权本次忙闲' : '未授权忙闲'}}</view></view><button wx:if="{{room.isOwner && !item.isMe && room.status === 'OPEN'}}" class="link-button remove-member" data-id="{{item.id}}" bindtap="remove" disabled="{{busy || loading || finding || !fresh}}">移除</button></view></view>
     </view>
-    <view wx:if="{{room.status === 'OPEN'}}" class="card"><view class="card-title">我的本次授权</view><view class="subtitle spaced">授权范围仅为上述日期与每天时间窗口的忙闲信息，不包含日程标题、原因或个人记忆。可随时撤回。</view><view class="notice">计算共同时间时只读取已授权成员的忙闲区间；全员确认写入前会检查各自日程是否冲突。</view><button class="secondary consent-button" bindtap="consent" disabled="{{busy || loading || finding}}">{{shareBusy ? '撤回本次忙闲授权' : '授权本次忙闲信息'}}</button></view>
+    <view wx:if="{{room.status === 'OPEN'}}" class="card"><view class="card-title">我的本次授权</view><view class="subtitle spaced">授权范围仅为上述日期与每天时间窗口的忙闲信息，不包含日程标题、原因或个人记忆。可随时撤回。</view><view class="notice">计算共同时间时只读取已授权成员的忙闲区间；全员确认写入前会检查各自日程是否冲突。</view><button class="secondary consent-button" bindtap="consent" disabled="{{busy || loading || finding || !fresh}}">{{shareBusy ? '撤回本次忙闲授权' : '授权本次忙闲信息'}}</button></view>
     <view wx:if="{{room.status === 'OPEN' && !local}}" class="card">
       <view class="card-title">共同可用时间</view>
       <view class="subtitle spaced">只交换「这个时段忙不忙」，不交换日程标题和原因。未授权成员的安排不参与计算。</view>
-      <button class="secondary find-time" bindtap="findTime" disabled="{{busy || loading || finding}}">{{finding ? '正在计算…' : '计算共同可用时间'}}</button>
+      <button class="secondary find-time" bindtap="findTime" disabled="{{busy || loading || finding || !fresh}}">{{finding ? '正在计算…' : '计算共同可用时间'}}</button>
       <block wx:if="{{availability}}">
         <view wx:if="{{availability.note}}" class="notice">{{availability.note}}</view>
         <view wx:if="{{availability.reason}}" class="notice">{{availability.reason}}</view>
         <view wx:for="{{availability.slots}}" wx:key="key" wx:for-index="index" class="record">
           <view class="row">
             <view class="slot-text">{{item.date}} {{item.startTime}}–{{item.endTime}}</view>
-            <button class="link-button pick-slot" data-index="{{index}}" bindtap="chooseSlot" disabled="{{busy}}">提出</button>
+            <button class="link-button pick-slot" data-index="{{index}}" bindtap="chooseSlot" disabled="{{busy || loading || finding || !fresh}}">提出</button>
           </view>
         </view>
       </block>
@@ -41,13 +43,13 @@
         </view>
       </view>
       <view wx:if="{{proposal.status === 'OPEN' && !proposal.stale}}" class="row decisions">
-        <button class="secondary accept" data-decision="ACCEPT" bindtap="decide" disabled="{{busy || loading}}">接受</button>
-        <button class="link-button reject" data-decision="REJECT" bindtap="decide" disabled="{{busy || loading}}">拒绝</button>
+        <button class="secondary accept" data-decision="ACCEPT" bindtap="decide" disabled="{{busy || loading || finding || !fresh}}">接受</button>
+        <button class="link-button reject" data-decision="REJECT" bindtap="decide" disabled="{{busy || loading || finding || !fresh}}">拒绝</button>
       </view>
-      <button wx:if="{{proposal.status === 'OPEN' && proposal.createdByMe}}" class="secondary cancel-proposal" bindtap="cancelProposal" disabled="{{busy || loading}}">撤回方案</button>
+      <button wx:if="{{proposal.status === 'OPEN' && proposal.createdByMe}}" class="secondary cancel-proposal" bindtap="cancelProposal" disabled="{{busy || loading || finding || !fresh}}">撤回方案</button>
     </view>
     <view wx:if="{{local}}" class="notice">本机演示不会邀请其他人，也不会交换信息。</view>
-    <button wx:if="{{room.isOwner && room.status === 'OPEN'}}" class="secondary close-room" bindtap="closeRoom" disabled="{{busy || loading}}">关闭圆桌</button>
-    <button wx:if="{{!room.isOwner}}" class="secondary leave-room" bindtap="leave" disabled="{{busy || loading}}">退出圆桌</button>
+    <button wx:if="{{room.isOwner && room.status === 'OPEN'}}" class="secondary close-room" bindtap="closeRoom" disabled="{{busy || loading || finding || !fresh}}">关闭圆桌</button>
+    <button wx:if="{{!room.isOwner}}" class="secondary leave-room" bindtap="leave" disabled="{{busy || loading || finding || !fresh}}">退出圆桌</button>
   </block>
 </view>

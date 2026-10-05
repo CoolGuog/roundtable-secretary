@@ -1,4 +1,5 @@
 import { config } from './config';
+import { localDraft, DraftFields } from './local-draft';
 
 export interface ArrangementInput { title: string; date: string; startTime: string; endTime: string; }
 export interface Arrangement extends ArrangementInput { id: string; createdAt: string; }
@@ -7,9 +8,26 @@ const legacySessionKey = 'roundtable.demo.session.v1';
 const sessionKey = () => `roundtable.session.v2.${config.authMode}.${config.apiBase}`;
 let sessionPromise: Promise<string> | undefined;
 let sessionEpoch = 0;
-class LoginExpired extends Error {}
+// 仅在本次小程序运行期间保留待确认请求，不把安排内容落入 API 模式的本机存储。
+const pendingSaves = new Map<string, string>();
+const createRequestId = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+  const value = Math.floor(Math.random() * 16); return (char === 'x' ? value : (value & 3) | 8).toString(16);
+});
+export class RequestError extends Error {
+  constructor(message: string, readonly statusCode: number) { super(message); }
+}
+class LoginExpired extends RequestError {
+  constructor(message: string) { super(message, 401); }
+}
 
 export type DraftStatus = 'READY' | 'NEEDS_INPUT' | 'UNAVAILABLE';
+export interface SecretaryStatus {
+  mode: 'local' | 'off' | 'stub' | 'http'; canGenerate: boolean; connectionVerified: boolean; message: string;
+}
+export async function loadSecretaryStatus(): Promise<SecretaryStatus> {
+  if (config.mode === 'local') return { mode: 'local', canGenerate: true, connectionVerified: false, message: '本机规则秘书：支持补充日期和时间，不联网、不调用 AI；确认后才保存' };
+  return request('/me/secretary/status', 'GET');
+}
 export interface ScheduleDraft {
   status: DraftStatus; title: string | null; date: string | null; startTime: string | null; endTime: string | null;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW'; missing: string[]; reasons: string[]; usedMemories: string[];
@@ -35,9 +53,9 @@ function validate(input: ArrangementInput): ArrangementInput {
 
 // 注意：wx.request 不支持 PATCH，编辑统一走 PUT。
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
-export async function request<T>(path: string, method: Method, data?: object): Promise<T> {
+export async function request<T>(path: string, method: Method, data?: object, requestId?: string): Promise<T> {
   const token = await ensureSession();
-  try { return await raw<T>(path, method, data, token); }
+  try { return await raw<T>(path, method, data, token, requestId); }
   catch (error) {
     // 仅重试读取，写入失败让用户确认后重试，避免网络不确定性造成重复保存。
     if (error instanceof LoginExpired && config.authMode === 'wechat' && method === 'GET') {
@@ -83,34 +101,34 @@ export async function logout() {
     catch (error) { if (!(error instanceof LoginExpired)) throw error; }
   }
   sessionEpoch++;
+  pendingSaves.clear();
   sessionPromise = undefined;
   wx.removeStorageSync(sessionKey());
 }
-function raw<T>(path: string, method: Method, data?: object, token?: string): Promise<T> {
+function raw<T>(path: string, method: Method, data?: object, token?: string, requestId?: string): Promise<T> {
   return new Promise((resolve, reject) => {
     wx.request({
       url: config.apiBase + path, method, data, timeout: 10000,
-      header: token ? { Authorization: `Bearer ${token}` } : {},
+      header: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(requestId ? { 'Idempotency-Key': requestId } : {}) },
       success(response) {
         if (response.statusCode >= 200 && response.statusCode < 300) resolve(response.data as T);
         else if (response.statusCode === 401) {
           if (token && wx.getStorageSync(sessionKey()) === token) wx.removeStorageSync(sessionKey());
           reject(new LoginExpired(config.authMode === 'wechat' ? '登录已失效，请重新登录后重试' : '演示会话已失效，重试将创建新演示身份，无法自动找回旧身份的安排。'));
-        } else if (response.statusCode === 404) reject(new Error(path.startsWith('/roundtables') ? ((response.data as { message?: string })?.message || '圆桌不存在或你已不是成员') : path.startsWith('/me/memories/') ? '这条记忆已不存在，请刷新后重试' : path.startsWith('/me/arrangements/') ? '这条安排已不存在，请刷新后重试' : '登录方式与后台配置不一致，请检查运行配置'));
-        else reject(new Error((response.data as { message?: string })?.message || '服务暂时不可用'));
+        } else if (response.statusCode === 404) reject(new RequestError(path.startsWith('/roundtables') ? ((response.data as { message?: string })?.message || '圆桌不存在或你已不是成员') : path.startsWith('/me/memories/') ? '这条记忆已不存在，请刷新后重试' : path.startsWith('/me/arrangements/') ? '这条安排已不存在，请刷新后重试' : '登录方式与后台配置不一致，请检查运行配置', 404));
+        else reject(new RequestError((response.data as { message?: string })?.message || '服务暂时不可用', response.statusCode));
       },
-      fail() { reject(new Error('无法连接本地后台，请确认服务已启动，或切回本机演示模式。')); },
+      fail() { reject(new RequestError('未收到后台响应，请检查网络和后台服务后刷新。', 0)); },
     });
   });
 }
 
 // 只生成草稿，不写入。写入必须走 saveArrangement，也就是用户点一次"确认保存"。
-export async function draftFromText(text: string): Promise<ScheduleDraft> {
+export async function draftFromText(text: string, previous: DraftFields | null = null): Promise<ScheduleDraft> {
   const value = text.trim();
   if (!value) throw new Error('请先说一句你想安排的事');
   if (value.length > 200) throw new Error('描述请控制在 200 字以内');
-  // 本机演示模式不联网，也没有模型，不去假装自己听得懂。
-  if (config.mode !== 'api') throw new Error('本机演示未连接模型，请切换本地后台模式后再试');
+  if (config.mode === 'local') return localDraft(value, previous, today());
   return request<ScheduleDraft>('/me/secretary/draft', 'POST', { text: value });
 }
 
@@ -122,7 +140,18 @@ export async function listArrangements(): Promise<Arrangement[]> {
 }
 export async function saveArrangement(input: ArrangementInput): Promise<void> {
   const value = validate(input);
-  if (config.mode === 'api') { await request('/me/arrangements', 'POST', value); return; }
+  if (config.mode === 'api') {
+    const signature = JSON.stringify([sessionKey(), value.title, value.date, value.startTime, value.endTime]);
+    let id = pendingSaves.get(signature);
+    if (!id) {
+      if (pendingSaves.size >= 100) throw new Error('待确认的保存较多，请先查看日程，确认结果后重新打开小程序');
+      id = createRequestId(); pendingSaves.set(signature, id);
+    }
+    await request('/me/arrangements', 'POST', value, id);
+    // 成功后再提交相同内容视为用户有意创建另一条；失败则保留编号供手动重试。
+    if (pendingSaves.get(signature) === id) pendingSaves.delete(signature);
+    return;
+  }
   const records = await listArrangements();
   if (records.length >= 100) throw new Error('演示最多保存 100 条安排');
   records.push({ ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, createdAt: new Date().toISOString() });
@@ -145,5 +174,5 @@ export function clearLocalDemo() {
   wx.removeStorageSync('roundtable.demo.rooms.v1');
   wx.removeStorageSync('roundtable.demo.memories.v1');
   wx.removeStorageSync(dataKey); wx.removeStorageSync(legacySessionKey);
-  if (config.authMode === 'demo') { sessionEpoch++; sessionPromise = undefined; wx.removeStorageSync(sessionKey()); }
+  if (config.authMode === 'demo') { sessionEpoch++; sessionPromise = undefined; pendingSaves.clear(); wx.removeStorageSync(sessionKey()); }
 }
