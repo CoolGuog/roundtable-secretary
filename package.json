@@ -5,6 +5,7 @@
   "description": "圆桌秘书微信小程序与后台",
   "scripts": {
     "check:setup": "node scripts/check-setup.mjs",
+    "check:api": "node scripts/check-api.mjs",
     "db:generate": "prisma generate",
     "db:deploy": "prisma migrate deploy",
     "db:status": "prisma migrate status",
@@ -13,6 +14,8 @@
     "test:postgres": "npm run build:api && node scripts/test-postgres.mjs",
     "build:api": "tsc -p apps/api/tsconfig.json",
     "build:mini": "node scripts/build-mini.mjs",
+    "build:mini:release": "node scripts/mini-release.mjs",
+    "check:mini:release": "node scripts/mini-release.mjs --verify",
     "typecheck": "tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/miniprogram/tsconfig.json --noEmit",
     "build": "npm run build:api && npm run build:mini",
     "start:api": "node apps/api/dist/main.js",
