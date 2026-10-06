@@ -140,8 +140,18 @@ model Roundtable {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   members RoundtableMember[]
   proposals Proposal[]
+  meetingReview MeetingReview?
   @@index([ownerId])
   @@map("roundtables")
+}
+
+/// 每个圆桌一份会议复盘，保留修订快照和逐人表态记录；应用限制 20 版、每版 100 次表态。
+model MeetingReview {
+  roomId String @id @map("room_id") @db.Uuid
+  document Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  room Roundtable @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@map("meeting_reviews")
 }
 
 /// 一次协商提出的候选方案。只存时间，不存任何成员的安排标题或原因。

@@ -3,6 +3,7 @@ import { Prisma, PrismaClient, Arrangement as DbArrangement, PersonalMemory as D
 import { PersonalMemory, validateMemory } from './memory';
 import { PostgresNegotiation } from './postgres-negotiation';
 import { PostgresRooms } from './postgres-rooms';
+import { PostgresReviews } from './postgres-reviews';
 import { createHash, randomBytes } from 'node:crypto';
 import { Arrangement, PersonalStore, validateArrangement, validateArrangementPatch, validateName } from './store';
 import { TIME_ZONE, beijingDate, beijingInstant, beijingTime } from './time';
@@ -23,9 +24,11 @@ function toDto(item: DbArrangement): Arrangement {
 export class PostgresStore implements PersonalStore {
   readonly persistence = 'postgres' as const;
   readonly rooms: PostgresRooms;
+  readonly reviews: PostgresReviews;
   readonly negotiation: PostgresNegotiation;
   private constructor(private readonly db: PrismaClient, private readonly wechatAppId?: string) {
     this.rooms = new PostgresRooms(db, operation => this.transaction(operation), wechatAppId);
+    this.reviews = new PostgresReviews(db, operation => this.transaction(operation), wechatAppId);
     this.negotiation = new PostgresNegotiation(db, operation => this.transaction(operation), wechatAppId);
   }
   static async connect(url: string, wechatAppId?: string) {
@@ -38,6 +41,7 @@ export class PostgresStore implements PersonalStore {
   async checkReady() {
     // 只验证当前业务使用的表与列，不读取个人数据；索引、约束与迁移历史仍需部署时核对。
     await this.db.$transaction([
+      this.db.$queryRaw`SELECT room_id, document, updated_at FROM meeting_reviews LIMIT 0`,
       this.db.$queryRaw`SELECT id, wx_app_id, wx_open_id, wx_union_id, display_name, secretary_name, created_at, updated_at FROM users LIMIT 0`,
       this.db.$queryRaw`SELECT token_hash, user_id, expires_at, created_at FROM demo_sessions LIMIT 0`,
       this.db.$queryRaw`SELECT token_hash, user_id, expires_at, created_at FROM wechat_sessions LIMIT 0`,

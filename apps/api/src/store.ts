@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { PersonalMemory } from './memory';
 import type { NegotiationStore } from './negotiation';
 import type { RoomStore } from './rooms';
+import type { ReviewStore } from './reviews';
 
 export type ArrangementInput = { title: string; date: string; startTime: string; endTime: string };
 export type Arrangement = ArrangementInput & { id: string; createdAt: string };
@@ -9,6 +10,7 @@ export type User = { id: string; name: string; secretaryName: string };
 export const STORE = Symbol('personal-store');
 export interface PersonalStore {
   readonly rooms: RoomStore;
+  readonly reviews: ReviewStore;
   /** 共同可用时间与方案确认（第 15、16 步） */
   readonly negotiation: NegotiationStore;
   readonly persistence: 'memory' | 'postgres';

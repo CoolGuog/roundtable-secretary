@@ -11,6 +11,7 @@ import { secretaryContract } from './secretary-contract.mjs';
 import { StubModel } from '../apps/api/dist/secretary.js';
 import { negotiationRecoveryContract } from './negotiation-recovery-contract.mjs';
 import { arrangementRetryContract } from './arrangement-retry-contract.mjs';
+import { reviewContract } from './review-contract.mjs';
 
 test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.env.RUN_POSTGRES_TESTS }, async t => {
   assert.ok(process.env.DATABASE_URL, '需要本机 DATABASE_URL');
@@ -78,6 +79,24 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     });
     await memoryContract(t, call, user);
     await roomContract(t, call, user);
+    await reviewContract(t, call, user);
+    await t.test('复盘重启后保留，缺复盘表时就绪检查拒绝启动', async () => {
+      const a = await user('持久复盘');
+      const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+      const room = await (await call('/roundtables', 'POST', a.token, { ...sampleRoom, dateFrom: today, dateTo: today })).json();
+      const route = `/roundtables/${room.id}/review`;
+      const view = await (await call(route, 'GET', a.token)).json();
+      const saved = await call(route, 'PUT', a.token, { version: 0, date: today, outcome: 'NOT_HELD', facts: '虚构复盘',
+        allocations: view.participants.map(p => ({ memberId: p.memberId, percent: 0, reason: '', action: '' })),
+        externalPercent: 0, externalReason: '', unassignedPercent: 100 });
+      assert.equal(saved.status, 200); const expected = await saved.json();
+      await app.close(); app = undefined; await start();
+      assert.deepEqual(await (await call(route, 'GET', a.token)).json(), expected);
+      await db.$executeRawUnsafe(`ALTER TABLE "${schema}".meeting_reviews RENAME TO hidden_meeting_reviews`);
+      try {
+        await assert.rejects(createApp({ storage: 'postgres', databaseUrl, authMode: 'demo', secretary: { mode: 'off' } }), /数据库连接或迁移未就绪/);
+      } finally { await db.$executeRawUnsafe(`ALTER TABLE "${schema}".hidden_meeting_reviews RENAME TO meeting_reviews`); }
+    });
     await negotiationContract(t, call, user);
     await negotiationRecoveryContract(t, call, user);
     await t.test('并发发起只保留一个开放方案，过期后直接重提，全员并发确认只写一次', async () => {

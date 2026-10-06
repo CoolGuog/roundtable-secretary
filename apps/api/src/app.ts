@@ -15,6 +15,7 @@ import { PostgresStore } from './postgres-store';
 import { PersonalMemory, validateMemory } from './memory';
 import { MemoryNegotiation } from './negotiation';
 import { MemoryRooms } from './rooms';
+import { MemoryReviews } from './reviews';
 import {
   SECRETARY, SecretaryModel, SecretaryMode, SecretaryService, validateSecretaryText,
 } from './secretary';
@@ -34,6 +35,7 @@ class DemoStore implements PersonalStore {
   readonly persistence = 'memory' as const;
   checkReady() {}
   readonly rooms = new MemoryRooms(id => this.users.get(id)!.name);
+  readonly reviews = new MemoryReviews((userId, roomId) => this.rooms.reviewContext(userId, roomId));
   readonly negotiation = new MemoryNegotiation({
     room: (userId, roomId) => this.rooms.core(userId, roomId),
     arrangements: userId => this.list(userId),
@@ -231,6 +233,9 @@ class PersonalController {
 @UseGuards(SessionGuard)
 class RoundtableController {
   constructor(@Inject(STORE) private readonly store: PersonalStore) {}
+  @Get(':id/review') review(@Req() req: AuthRequest, @Param('id') id: string) { return this.store.reviews.get(req.userId!, id); }
+  @Put(':id/review') editReview(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.store.reviews.edit(req.userId!, id, body); }
+  @Put(':id/review/vote') voteReview(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.store.reviews.vote(req.userId!, id, body); }
   @Get() list(@Req() req: AuthRequest) { return this.store.rooms.list(req.userId!); }
   @Post() create(@Req() req: AuthRequest, @Body() body: unknown) { return this.store.rooms.create(req.userId!, body); }
   @Post('join') join(@Req() req: AuthRequest, @Body() body: unknown) { return this.store.rooms.join(req.userId!, body); }
