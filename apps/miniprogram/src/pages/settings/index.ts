@@ -18,7 +18,7 @@ Page({
     finally { this.setData({ busy: false }); }
   },
   clear() {
-    wx.showModal({ title: '清除本机演示数据？', content: '只清除本小程序的本机演示安排、记忆、圆桌与演示会话，不会删除服务器记录。',
+    wx.showModal({ title: '清除本机演示数据？', content: '只清除本机安排、记忆、圆桌、复盘、工作台（任务、清单、纪要）与演示会话，不会删除服务器记录。',
       success(result) { if (result.confirm) { clearLocalDemo(); wx.showToast({ title: '已清除', icon: 'success' }); } },
     });
   },

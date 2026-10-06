@@ -171,6 +171,8 @@ export async function deleteArrangement(id: string) {
   wx.setStorageSync(dataKey, (await listArrangements()).filter(item => item.id !== id));
 }
 export function clearLocalDemo() {
+  wx.removeStorageSync('roundtable.demo.meeting-work.v1');
+  wx.removeStorageSync('roundtable.demo.reviews.v1');
   wx.removeStorageSync('roundtable.demo.rooms.v1');
   wx.removeStorageSync('roundtable.demo.memories.v1');
   wx.removeStorageSync(dataKey); wx.removeStorageSync(legacySessionKey);

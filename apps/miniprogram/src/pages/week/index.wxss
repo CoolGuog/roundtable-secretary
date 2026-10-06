@@ -1,0 +1,7 @@
+.week-controls { display: flex; gap: 12rpx; margin-top: 20rpx; }
+.week-controls button { flex: 1; }
+.week-stats { display: flex; flex-wrap: wrap; justify-content: space-between; margin-top: 24rpx; }
+.week-stat { box-sizing: border-box; width: 48%; margin-bottom: 18rpx; background: #edf1e9; border-radius: 18rpx; padding: 20rpx; color: #315541; }
+.week-stat text { display: block; font-size: 40rpx; font-weight: 600; }
+.week-heading { font-size: 28rpx; font-weight: 600; line-height: 1.8; }
+.week-title { word-break: break-all; margin: 8rpx 0; }

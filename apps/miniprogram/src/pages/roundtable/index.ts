@@ -13,6 +13,12 @@ Page({
   _visible: false, _disposed: false, _epoch: 0, _viewEpoch: 0, _failures: 0, _proposalSignature: '',
   _timer: undefined as ReturnType<typeof setTimeout> | undefined,
   onLoad(options: Record<string, string | undefined>) { this.setData({ id: options.id || '' }); },
+  openReview() {
+    if (this._visible && this.data.room && this.data.fresh && !this.data.busy && !this.data.loading) wx.navigateTo({ url: `/pages/review/index?id=${encodeURIComponent(this.data.id)}` });
+  },
+  openWork() {
+    if (this._visible && this.data.local && this.data.room && this.data.fresh && !this.data.busy && !this.data.loading) wx.navigateTo({ url: `/pages/meeting-work/index?id=${encodeURIComponent(this.data.id)}` });
+  },
   onShow() {
     this._visible = true; this._viewEpoch++;
     this.setData({ loading: false, finding: false, syncing: false, fresh: false }); void this.reload();

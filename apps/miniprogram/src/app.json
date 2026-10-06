@@ -1,5 +1,5 @@
 {
-  "pages": ["pages/secretary/index", "pages/roundtables/index", "pages/calendar/index", "pages/settings/index", "pages/memories/index", "pages/roundtable/index"],
+  "pages": ["pages/secretary/index", "pages/roundtables/index", "pages/calendar/index", "pages/settings/index", "pages/memories/index", "pages/roundtable/index", "pages/review/index", "pages/meeting-work/index", "pages/week/index"],
   "window": {
     "navigationBarTitleText": "圆桌秘书",
     "navigationBarBackgroundColor": "#F5F4EF",

@@ -1,0 +1,50 @@
+<view class="page">
+  <text class="eyebrow">MEETING REVIEW</text><view class="title">把经过说清楚。</view>
+  <view class="subtitle">记录会议未举办的原因，明确责任与下一步。</view>
+  <view class="notice">{{local ? '本机模式只保存复盘草稿，不能代替伙伴确认。多人逐人确认需要后台模式。' : '比例是参与者提出的分配建议。全员确认后才达成共识，任何人都可以提出异议；系统不会自动判定谁有责任。'}}</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button class="secondary refresh-review" bindtap="reload" disabled="{{busy || loading}}">{{loading ? '正在读取…' : '刷新复盘'}}</button>
+  <block wx:if="{{room && view}}">
+    <view class="card"><view class="card-title">{{room.title}}</view><view class="muted spaced">{{room.dateFrom}} 至 {{room.dateTo}} · 北京时间</view><view class="badge spaced">{{currentStatus}}</view>
+      <button wx:if="{{view.canEdit && !editor}}" class="primary edit-review" bindtap="edit" disabled="{{busy || loading || !fresh}}">{{view.revisions.length ? '修订责任分配' : '记录未举办原因'}}</button>
+      <view wx:if="{{!view.canEdit && !view.revisions.length}}" class="muted spaced">等待发起人提出复盘。</view>
+    </view>
+    <view class="card" wx:if="{{editor}}">
+      <view class="card-title">{{local ? '填写复盘草稿' : '提出复盘，等待逐人确认'}}</view>
+      <view class="notice" wx:if="{{baseVersion !== view.version}}">复盘已有更新，填写内容仍保留。请先核对下面的新结果，取消编辑后再修订。</view>
+      <text class="field-label">会议日期</text><picker class="review-date" mode="date" value="{{date}}" start="{{room.dateFrom}}" end="{{room.dateTo < today ? room.dateTo : today}}" data-field="date" bindchange="onField" disabled="{{busy}}"><view class="field">{{date}}</view></picker>
+      <text class="field-label">会议结果</text><picker class="review-outcome" range="{{outcomes}}" value="{{outcomeIndex}}" bindchange="onOutcome" disabled="{{busy}}"><view class="field">{{outcomes[outcomeIndex]}}</view></picker>
+      <text class="field-label">事实经过与依据</text><textarea class="field review-area review-facts" maxlength="1000" value="{{facts}}" data-field="facts" bindinput="onField" disabled="{{busy}}" placeholder="例如：约定 14:00 开会，13:50 收到场地关闭通知。写清时间、约定与可核对的信息。" />
+      <view class="review-row" wx:for="{{rows}}" wx:key="memberId">
+        <view class="review-name">{{item.name}}</view>
+        <text class="field-label">建议责任比例（%）</text><input class="field share-percent" type="number" maxlength="3" value="{{item.percent}}" data-id="{{item.memberId}}" data-field="percent" bindinput="onRow" disabled="{{busy}}" />
+        <text class="field-label">分配依据（非零比例必填）</text><textarea class="field review-area review-small share-reason" maxlength="200" value="{{item.reason}}" data-id="{{item.memberId}}" data-field="reason" bindinput="onRow" disabled="{{busy}}" placeholder="具体未履行的约定、行为及其影响" />
+        <text class="field-label">改进／补救事项（选填）</text><textarea class="field review-area review-small share-action" maxlength="200" value="{{item.action}}" data-id="{{item.memberId}}" data-field="action" bindinput="onRow" disabled="{{busy}}" placeholder="下一次由谁在何时完成什么" />
+      </view>
+      <text class="field-label">外部原因比例（%）</text><input class="field external-percent" type="number" maxlength="3" value="{{externalPercent}}" data-field="externalPercent" bindinput="onField" disabled="{{busy}}" />
+      <textarea class="field review-area review-small external-reason" maxlength="300" value="{{externalReason}}" data-field="externalReason" bindinput="onField" disabled="{{busy}}" placeholder="例如：停电、场地关闭；比例大于 0 时必填" />
+      <text class="field-label">待查／尚未分配（%）</text><input class="field unassigned-percent" type="number" maxlength="3" value="{{unassignedPercent}}" data-field="unassignedPercent" bindinput="onField" disabled="{{busy}}" />
+      <view class="review-total">合计 {{total}}% / 100%</view><view class="muted">可以把暂不清楚的部分留在待查，不必强行分给成员。每次修订保留旧版本，并重新征求确认。</view>
+      <button class="primary submit-review" bindtap="submit" loading="{{busy}}" disabled="{{busy || loading || !fresh || baseVersion !== view.version}}">{{local ? '保存本机复盘草稿' : '提交本版，等待成员确认'}}</button>
+      <button class="secondary cancel-review-edit" bindtap="cancelEdit" disabled="{{busy}}">取消编辑</button>
+    </view>
+    <button wx:if="{{view.revisions.length > 1}}" class="secondary review-history-button" bindtap="toggleHistory">{{showHistory ? '只看最新版本' : '查看全部修订历史'}}</button>
+    <view class="card" wx:for="{{display}}" wx:key="revision" wx:for-item="revision">
+      <view class="row"><view class="card-title">第 {{revision.revision}} 版</view><text class="badge">{{revision.statusLabel}}</text></view>
+      <view class="subtitle spaced">{{revision.date}} · {{revision.outcome === 'CANCELLED' ? '已取消（用户报告）' : '未能举办（用户报告）'}}</view>
+      <view class="review-text spaced">{{revision.facts}}</view>
+      <view class="review-row" wx:for="{{revision.allocations}}" wx:key="memberId"><view class="row"><text class="review-name">{{item.name}}</text><text>{{item.percent}}%</text></view><view wx:if="{{item.reason}}" class="review-text muted spaced">依据：{{item.reason}}</view><view wx:if="{{item.action}}" class="review-text muted spaced">补救：{{item.action}}</view></view>
+      <view class="spaced">外部原因 {{revision.externalPercent}}%</view><view class="review-text muted">{{revision.externalReason}}</view><view class="spaced">待查／未分配 {{revision.unassignedPercent}}%</view>
+      <view class="review-history"><view class="card-title">逐人确认</view><view class="review-row" wx:for="{{revision.votes}}" wx:key="memberId"><view>{{item.name}} · {{item.label}}</view><view wx:if="{{item.comment}}" class="review-text muted spaced">{{item.comment}}</view></view></view>
+      <view class="notice" wx:if="{{revision.status === 'AGREED' && revision.unassignedPercent > 0}}">大家同意当前记录，但仍有 {{revision.unassignedPercent}}% 待查；这部分尚未分配给任何人。</view>
+      <view class="review-history" wx:if="{{revision.events.length}}"><view class="card-title">表态记录（北京时间）</view><view class="review-row muted" wx:for="{{revision.events}}" wx:key="key"><view>{{item.time}} · {{item.name}} · {{item.label}}</view><view class="review-text">{{item.comment}}</view></view></view>
+    </view>
+    <view wx:if="{{!local && view.canVote && view.revisions.length && !editor}}" class="card">
+      <view class="card-title">我对最新版本的意见</view><textarea class="field review-area review-comment" maxlength="500" value="{{comment}}" data-field="comment" bindinput="onField" disabled="{{busy}}" placeholder="不同意时请写明理由；确认时也可补充说明。" />
+      <button class="primary accept-review" data-decision="ACCEPT" bindtap="vote" loading="{{busy}}" disabled="{{busy || loading || !fresh}}">我确认最新版本的分配</button>
+      <button class="secondary dispute-review" data-decision="DISPUTE" bindtap="vote" disabled="{{busy || loading || !fresh}}">我有异议，保留理由</button>
+      <view class="muted spaced">只记录你本人的意见。更改意见也会保留之前的表态。</view>
+    </view>
+    <button wx:if="{{local && view.revisions.length && !editor}}" class="secondary review-open-work" bindtap="openWork" disabled="{{busy || loading}}">到工作台跟进补救任务</button>
+  </block>
+</view>

@@ -1,6 +1,7 @@
 <view class="page">
   <text class="eyebrow">MY CALENDAR</text><view class="title">给时间留个位置。</view>
   <view class="subtitle">{{mode}} · 当前按北京时间（UTC+8）记录。</view>
+  <button class="secondary open-week" bindtap="openWeek">周视图与统计 →</button>
   <view class="card calendar-tools">
     <input class="field calendar-search" value="{{query}}" maxlength="60" placeholder="搜索安排名称" bindinput="onSearch" confirm-type="search" />
     <view class="calendar-filters">

@@ -48,6 +48,8 @@
       </view>
       <button wx:if="{{proposal.status === 'OPEN' && proposal.createdByMe}}" class="secondary cancel-proposal" bindtap="cancelProposal" disabled="{{busy || loading || finding || !fresh}}">撤回方案</button>
     </view>
+    <view class="card"><view class="card-title">会议复盘与责任分配</view><view class="muted spaced">会议未举办时，记录事实、责任建议与补救事项；保留异议和修订历史。</view><button class="secondary open-review" bindtap="openReview" disabled="{{busy || loading || !fresh}}">记录原因／查看复盘</button></view>
+    <view wx:if="{{local}}" class="card"><view class="card-title">会议工作台</view><view class="muted spaced">补救任务、会前准备清单、会议纪要与行动记录。</view><button class="secondary open-work" bindtap="openWork" disabled="{{busy || loading || !fresh}}">打开本机工作台</button></view>
     <view wx:if="{{local}}" class="notice">本机演示不会邀请其他人，也不会交换信息。</view>
     <button wx:if="{{room.isOwner && room.status === 'OPEN'}}" class="secondary close-room" bindtap="closeRoom" disabled="{{busy || loading || finding || !fresh}}">关闭圆桌</button>
     <button wx:if="{{!room.isOwner}}" class="secondary leave-room" bindtap="leave" disabled="{{busy || loading || finding || !fresh}}">退出圆桌</button>

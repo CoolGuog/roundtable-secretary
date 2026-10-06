@@ -48,6 +48,7 @@ Page({
     finally { if (this._visible && epoch === this._readEpoch) this.setData({ loading: false }); }
   },
   add() { wx.switchTab({ url: '/pages/secretary/index' }); },
+  openWeek() { wx.navigateTo({ url: '/pages/week/index' }); },
   openEdit(event: WechatMiniprogram.TouchEvent) {
     if (!this._visible || this.data.loading || this.data.saving || this.data.deletingId) return;
     const id = String(event.currentTarget.dataset.id);
