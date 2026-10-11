@@ -20,7 +20,8 @@ Page({
     const epoch = ++this._epoch; this._items = []; this._tasks = null;
     this.setData({ loading: true, loaded: false, error: '', taskError: '', days: [], stats: {}, taskStatsAvailable: false });
     try {
-      const [items, taskResult] = await Promise.all([listArrangements(), localTasksForStats().then(tasks => ({ tasks, error: '' }), error => ({ tasks: null, error: errorMessage(error) }))]);
+      const start = weekStart(this.data.anchor);
+      const [items, taskResult] = await Promise.all([listArrangements(start, shiftDate(start, 6)), localTasksForStats().then(tasks => ({ tasks, error: '' }), error => ({ tasks: null, error: errorMessage(error) }))]);
       if (!this._visible || epoch !== this._epoch) return;
       this._items = items; this._tasks = taskResult.tasks; this.setData({ loaded: true, taskError: taskResult.error }); this.render();
     } catch (error) { if (this._visible && epoch === this._epoch) this.setData({ error: errorMessage(error) }); }
@@ -28,10 +29,10 @@ Page({
   },
   onDate(event: WechatMiniprogram.PickerChange) {
     const anchor = String(event.detail.value);
-    try { weekStart(anchor); this.setData({ anchor }); if (this.data.loaded) this.render(); }
+    try { weekStart(anchor); this.setData({ anchor }); void this.reload(); }
     catch (error) { this.setData({ error: errorMessage(error) }); }
   },
-  previous() { if (this.data.loaded && this.data.canPrevious) { const anchor = shiftDate(this.data.start, -7); this.setData({ anchor: anchor < '2020-01-01' ? '2020-01-01' : anchor }); this.render(); } },
-  next() { if (this.data.loaded && this.data.canNext) { this.setData({ anchor: shiftDate(this.data.start, 7) }); this.render(); } },
-  currentWeek() { this.setData({ anchor: today() }); if (this.data.loaded) this.render(); },
+  previous() { if (this.data.loaded && this.data.canPrevious) { const anchor = shiftDate(this.data.start, -7); this.setData({ anchor: anchor < '2020-01-01' ? '2020-01-01' : anchor }); void this.reload(); } },
+  next() { if (this.data.loaded && this.data.canNext) { this.setData({ anchor: shiftDate(this.data.start, 7) }); void this.reload(); } },
+  currentWeek() { this.setData({ anchor: today() }); void this.reload(); },
 });

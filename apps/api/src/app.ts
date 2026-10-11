@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import {
   BadRequestException, Body, CanActivate, Controller, Delete, ExecutionContext,
-  Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Req, Res,
+  Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Query, Req, Res,
   ServiceUnavailableException, UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -9,11 +9,13 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import {
   Arrangement, User, PersonalStore, STORE,
-  validateArrangement, validateArrangementPatch, validateName,
+  inputObject, validateArrangement, validateArrangementPatch, validateName,
 } from './store';
 import { PostgresStore } from './postgres-store';
 import { PersonalMemory, validateMemory } from './memory';
 import { MemoryNegotiation } from './negotiation';
+import { RepeatedArrangements } from './repeated-arrangements';
+import { repeatWindow } from './repeat-engine';
 import { MemoryRooms } from './rooms';
 import { MemoryReviews } from './reviews';
 import {
@@ -32,13 +34,14 @@ type AuthRequest = {
 
 @Injectable()
 class DemoStore implements PersonalStore {
+  readonly repeated = new RepeatedArrangements();
   readonly persistence = 'memory' as const;
   checkReady() {}
   readonly rooms = new MemoryRooms(id => this.users.get(id)!.name);
   readonly reviews = new MemoryReviews((userId, roomId) => this.rooms.reviewContext(userId, roomId));
   readonly negotiation = new MemoryNegotiation({
     room: (userId, roomId) => this.rooms.core(userId, roomId),
-    arrangements: userId => [...this.arrangements.get(userId)!.values()],
+    arrangements: async (userId, from, to) => [...this.arrangements.get(userId)!.values(), ...await this.repeated.list(userId, from, to)],
     createArrangements: entries => {
       // 全部校验和预生成成功后再写，避免后一个成员满额时只写入前一个成员。
       const counts = new Map<string, number>();
@@ -81,12 +84,15 @@ class DemoStore implements PersonalStore {
   revokeSession(token: string) { this.sessions.delete(this.hash(token)); }
 
   profile(userId: string) { return this.users.get(userId)!; }
-  list(userId: string) {
-    return [...this.arrangements.get(userId)!.values()]
-      .map(({ sourceRoomId: _source, ...item }) => item)
+  async list(userId: string, from?: string, to?: string) {
+    let window;
+    try { window = repeatWindow(from, to); } catch { throw new BadRequestException('日期范围不正确'); }
+    return [...this.arrangements.get(userId)!.values(), ...await this.repeated.list(userId, window.from, window.to)]
+      .map(item => { const { sourceRoomId: _source, ...publicItem } = item as Arrangement & { sourceRoomId?: string }; return publicItem; })
       .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
   }
   create(userId: string, value: unknown, requestId?: unknown) {
+    if (value && typeof value === 'object' && 'repeat' in value) return this.repeated.create(userId, value, requestId);
     const input = validateArrangement(value);
     const key = requestKey(requestId), fingerprint = arrangementFingerprint(input);
     const previous = key ? this.createRequests.get(`${userId}:${key}`) : undefined;
@@ -103,6 +109,7 @@ class DemoStore implements PersonalStore {
     return item;
   }
   update(userId: string, id: string, value: unknown) {
+    if (id.startsWith('r:')) { const { scope = 'one', ...fields } = inputObject(value); return this.repeated.change(userId, id, scope, fields); }
     const patch = validateArrangementPatch(value);
     const records = this.arrangements.get(userId)!;
     const existing = records.get(id);
@@ -115,7 +122,8 @@ class DemoStore implements PersonalStore {
     records.set(id, { ...item, sourceRoomId: existing.sourceRoomId });
     return item;
   }
-  remove(userId: string, id: string) {
+  remove(userId: string, id: string, scope = 'one') {
+    if (id.startsWith('r:')) return this.repeated.change(userId, id, scope, null);
     if (!this.arrangements.get(userId)!.delete(id)) throw new NotFoundException('安排不存在');
   }
   listMemories(userId: string) {
@@ -196,7 +204,7 @@ class PersonalController {
   @Delete('session')
   @HttpCode(204)
   logout(@Req() request: AuthRequest) { return this.store.revokeSession(request.headers.authorization!.slice(7)); }
-  @Get('arrangements') list(@Req() request: AuthRequest) { return this.store.list(request.userId!); }
+  @Get('arrangements') list(@Req() request: AuthRequest, @Query('from') from?: string, @Query('to') to?: string) { return this.store.list(request.userId!, from, to); }
   @Post('arrangements') create(@Req() request: AuthRequest, @Body() body: unknown) {
     return this.store.create(request.userId!, body, request.headers['idempotency-key']);
   }
@@ -208,7 +216,7 @@ class PersonalController {
   }
   @Delete('arrangements/:id')
   @HttpCode(204)
-  remove(@Req() request: AuthRequest, @Param('id') id: string) { return this.store.remove(request.userId!, id); }
+  remove(@Req() request: AuthRequest, @Param('id') id: string, @Query('scope') scope?: string) { return this.store.remove(request.userId!, id, scope); }
   @Get('memories') listMemories(@Req() request: AuthRequest) { return this.store.listMemories(request.userId!); }
   @Post('memories') createMemory(@Req() request: AuthRequest, @Body() body: unknown) {
     return this.store.createMemory(request.userId!, body);

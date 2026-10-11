@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { repeatModules } from './mini-repeat-loader.mjs';
 import { sampleRoom } from './room-contract.mjs';
 function client(mode = 'local') {
   const storage = new Map(), calls = [], exports = {};
@@ -24,17 +25,13 @@ function secretaryClient(mode = 'local') {
   const token = 'a'.repeat(64);
   const draft = { status: 'READY', title: '和导师开会', date: '2026-10-01', startTime: '15:00', endTime: '16:00',
     confidence: 'HIGH', missing: [], reasons: [], usedMemories: [], model: 'stub', message: '已生成草稿，确认后才会写入你的日程' };
-  vm.runInNewContext(js, { exports,
-    wx: {
-      getStorageSync: key => storage.get(key),
-      setStorageSync: (key, value) => storage.set(key, value),
-      removeStorageSync: key => storage.delete(key),
-      request(options) {
-        calls.push([options.method, options.url, options.data]);
-        options.success(options.url.includes('/dev/sessions') ? { statusCode: 201, data: { token } } : { statusCode: 200, data: draft });
-      },
-    },
-    require: name => name === './config' ? { config: { mode, authMode: 'demo', apiBase: 'http://127.0.0.1:3000' } } : rules,
+  const wx = {
+    getStorageSync: key => storage.get(key), setStorageSync: (key, value) => storage.set(key, value), removeStorageSync: key => storage.delete(key),
+    request(options) { calls.push([options.method, options.url, options.data]); options.success(options.url.includes('/dev/sessions') ? { statusCode: 201, data: { token } } : { statusCode: 200, data: draft }); },
+  };
+  const repeats = repeatModules(wx);
+  vm.runInNewContext(js, { exports, wx,
+    require: name => name === './config' ? { config: { mode, authMode: 'demo', apiBase: 'http://127.0.0.1:3000' } } : repeats.get(name) || rules,
   });
   return { api: exports, calls, storage };
 }

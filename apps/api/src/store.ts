@@ -19,10 +19,10 @@ export interface PersonalStore {
   authenticate(token: string): string | Promise<string>;
   revokeSession(token: string): void | Promise<void>;
   profile(userId: string): User | Promise<User>;
-  list(userId: string): Arrangement[] | Promise<Arrangement[]>;
-  create(userId: string, value: unknown, requestId?: unknown): Arrangement | Promise<Arrangement>;
-  update(userId: string, id: string, value: unknown): Arrangement | Promise<Arrangement>;
-  remove(userId: string, id: string): void | Promise<void>;
+  list(userId: string, from?: string, to?: string): Arrangement[] | Promise<Arrangement[]>;
+  create(userId: string, value: unknown, requestId?: unknown): unknown;
+  update(userId: string, id: string, value: unknown): unknown;
+  remove(userId: string, id: string, scope?: string): void | Promise<void>;
   listMemories(userId: string): PersonalMemory[] | Promise<PersonalMemory[]>;
   createMemory(userId: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;
   updateMemory(userId: string, id: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;

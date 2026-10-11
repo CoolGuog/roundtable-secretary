@@ -6,7 +6,7 @@ import ts from 'typescript';
 import { createApp } from '../apps/api/dist/app.js';
 
 // 真实页面逻辑与请求服务连接本机 HTTP 后台；不代替微信渲染、原生弹窗或真机验收。
-const files = ['services/secretary', 'services/roundtables', 'pages/roundtable/index'];
+const files = ['services/repeat-engine', 'services/local-repeated', 'services/secretary', 'services/roundtables', 'pages/roundtable/index'];
 const sources = new Map(files.map(file => [file, ts.transpileModule(fs.readFileSync(`apps/miniprogram/src/${file}.ts`, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2018 },
 }).outputText]));
@@ -35,7 +35,7 @@ function client(base) {
     },
   };
   const context = vm.createContext({ wx, exports: {},
-    require: name => name.endsWith('config') ? { config: { mode: 'api', authMode: 'demo', apiBase: base } } : modules.get(name.endsWith('roundtables') ? 'services/roundtables' : 'services/secretary'),
+    require: name => name.endsWith('config') ? { config: { mode: 'api', authMode: 'demo', apiBase: base } } : modules.get('services/' + name.split('/').pop()),
     Page: value => { page = value; },
     setTimeout: (callback, delay) => { timers.set(++id, { callback, delay }); return id; }, clearTimeout: key => timers.delete(key),
   });

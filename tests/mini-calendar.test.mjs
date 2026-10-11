@@ -19,24 +19,39 @@ function setup() {
   let time = Date.parse('2026-10-02T02:30:00Z'), timerId = 0, reads = 0;
   const timers = new Map();
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [time])); } static now() { return time; } }
-  const modals = [], deleted = [], updated = [], toasts = [];
+  const modals = [], sheets = [], deleted = [], updated = [], scopes = [], toasts = [];
   const rows = [{ id: 'a', title: '课程讨论', date: '2026-10-02', startTime: '09:00', endTime: '10:00' },
     { id: 'b', title: '读书', date: '2026-10-02', startTime: '11:00', endTime: '12:00' }];
   const api = {
     modeLabel: () => '后台模式', errorMessage: error => error.message,
     listArrangements: async () => { reads++; return structuredClone(rows); },
-    deleteArrangement: async id => { deleted.push(id); rows.splice(rows.findIndex(row => row.id === id), 1); },
-    updateArrangement: async (id, fields) => { updated.push(id); Object.assign(rows.find(row => row.id === id), fields); },
+    deleteArrangement: async (id, scope) => { deleted.push(id); scopes.push(scope); rows.splice(rows.findIndex(row => row.id === id), 1); },
+    updateArrangement: async (id, fields, scope) => { updated.push(id); scopes.push(scope); Object.assign(rows.find(row => row.id === id), fields); },
   };
   vm.runInNewContext(source, { exports: {}, require: name => name.endsWith('calendar-view') ? display : api, Page: value => { page = value; }, Date: Clock,
     setTimeout: callback => { const id = ++timerId; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id),
-    wx: { showModal: modal => modals.push(modal), showToast: toast => toasts.push(toast), switchTab() {} },
+    wx: { showModal: modal => modals.push(modal), showActionSheet: sheet => sheets.push(sheet), showToast: toast => toasts.push(toast), switchTab() {} },
   });
   page.setData = data => Object.assign(page.data, data);
-  return { page, api, rows, modals, deleted, updated, toasts, timers, reads: () => reads,
+  return { page, api, rows, modals, sheets, scopes, deleted, updated, toasts, timers, reads: () => reads,
     tick(value) { time = Date.parse(value); const jobs = [...timers.values()]; timers.clear(); jobs.forEach(job => job()); },
     async open() { page.onShow(); await settle(); } };
 }
+
+test('重复安排先选操作范围，删除仍需确认；取消或离页的旧选择不能写入', async () => {
+  const c = setup(); c.rows[0].seriesId = 'series'; await c.open();
+  c.page.openEdit(event('a')); assert.equal(c.page.data.editingId, '');
+  c.sheets[0].success({ tapIndex: 0 }); c.sheets[0].complete();
+  assert.equal(c.page.data.editScope, 'one'); await c.page.submitEdit(); assert.equal(c.scopes[0], 'one');
+  c.page.remove(event('a')); c.sheets[1].fail(); assert.equal(c.deleted.length, 0);
+  c.page.remove(event('a')); c.sheets[2].success({ tapIndex: 1 });
+  assert.equal(c.modals.length, 1); assert.equal(c.deleted.length, 0);
+  await c.modals[0].success({ confirm: false }); assert.equal(c.deleted.length, 0);
+  c.page.remove(event('a')); c.page.onHide(); await c.open(); c.sheets[3].success({ tapIndex: 1 });
+  assert.equal(c.modals.length, 1);
+  c.sheets[3].fail(); c.page.remove(event('a')); c.sheets[4].success({ tapIndex: 1 });
+  await c.modals[1].success({ confirm: true }); assert.equal(c.scopes.at(-1), 'future');
+});
 
 test('删除确认显示具体名称，取消不写入；连续点击只打开一次弹窗', async () => {
   const c = setup(); await c.open();

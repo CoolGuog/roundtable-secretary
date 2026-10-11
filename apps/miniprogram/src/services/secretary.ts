@@ -1,8 +1,10 @@
 import { config } from './config';
 import { localDraft, DraftFields } from './local-draft';
+import { RepeatRule, repeatWindow, repeatRule, validDay } from './repeat-engine';
+import { localRepeated, saveLocalRepeated, changeLocalRepeated } from './local-repeated';
 
-export interface ArrangementInput { title: string; date: string; startTime: string; endTime: string; }
-export interface Arrangement extends ArrangementInput { id: string; createdAt: string; }
+export interface ArrangementInput { title: string; date: string; startTime: string; endTime: string; repeat?: RepeatRule; }
+export interface Arrangement extends ArrangementInput { id: string; createdAt: string; repeatLabel?: string; seriesId?: string; }
 const dataKey = 'roundtable.demo.arrangements.v1';
 const legacySessionKey = 'roundtable.demo.session.v1';
 // Only local demo previews use A/B identities; real WeChat sessions retain their existing keys.
@@ -48,7 +50,8 @@ export function errorMessage(error: unknown) { return error instanceof Error ? e
 function validate(input: ArrangementInput): ArrangementInput {
   const title = input.title.trim();
   if (!title || title.length > 60) throw new Error('请填写 1 至 60 字的安排名称');
-  if (!input.date || !input.startTime || !input.endTime || input.startTime >= input.endTime) {
+  if (!validDay(input.date)) throw new Error('请选择有效的日期');
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.startTime) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.endTime) || input.startTime >= input.endTime) {
     throw new Error('结束时间须晚于开始时间，首版仅支持同日安排');
   }
   return { ...input, title };
@@ -144,16 +147,18 @@ export async function draftFromText(text: string, previous: DraftFields | null =
   return request<ScheduleDraft>('/me/secretary/draft', 'POST', { text: value });
 }
 
-export async function listArrangements(): Promise<Arrangement[]> {
-  if (config.mode === 'api') return request<Arrangement[]>('/me/arrangements', 'GET');
+export async function listArrangements(from?: string, to?: string): Promise<Arrangement[]> {
+  const window = repeatWindow(from, to);
+  if (config.mode === 'api') return request<Arrangement[]>('/me/arrangements' + (from ? `?from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}` : ''), 'GET');
   const records = wx.getStorageSync(dataKey);
-  return (Array.isArray(records) ? records : [])
+  return [...(Array.isArray(records) ? records : []), ...localRepeated(window.from, window.to)]
     .sort((a: Arrangement, b: Arrangement) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
 }
 export async function saveArrangement(input: ArrangementInput): Promise<void> {
   const value = validate(input);
+  if (value.repeat) value.repeat = repeatRule(value.repeat, value.date);
   if (config.mode === 'api') {
-    const signature = JSON.stringify([sessionKey(), value.title, value.date, value.startTime, value.endTime]);
+    const signature = JSON.stringify([sessionKey(), value.title, value.date, value.startTime, value.endTime, value.repeat]);
     let id = pendingSaves.get(signature);
     if (!id) {
       if (pendingSaves.size >= 100) throw new Error('待确认的保存较多，请先查看日程，确认结果后重新打开小程序');
@@ -164,25 +169,32 @@ export async function saveArrangement(input: ArrangementInput): Promise<void> {
     if (pendingSaves.get(signature) === id) pendingSaves.delete(signature);
     return;
   }
-  const records = await listArrangements();
+  if (value.repeat) { saveLocalRepeated(value as ArrangementInput & { repeat: RepeatRule }); return; }
+  const stored = wx.getStorageSync(dataKey);
+  const records: Arrangement[] = Array.isArray(stored) ? stored : [];
   if (records.length >= 100) throw new Error('演示最多保存 100 条安排');
   records.push({ ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, createdAt: new Date().toISOString() });
   wx.setStorageSync(dataKey, records);
 }
-export async function updateArrangement(id: string, input: ArrangementInput): Promise<void> {
+export async function updateArrangement(id: string, input: ArrangementInput, scope = 'one'): Promise<void> {
   const value = validate(input);
-  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}`, 'PUT', value); return; }
-  const records = await listArrangements();
+  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}`, 'PUT', id.startsWith('r:') ? { ...value, scope } : value); return; }
+  if (id.startsWith('r:')) { changeLocalRepeated(id, scope, value); return; }
+  const stored = wx.getStorageSync(dataKey);
+  const records: Arrangement[] = Array.isArray(stored) ? stored : [];
   const index = records.findIndex(item => item.id === id);
   if (index < 0) throw new Error('这条安排已不存在，请刷新后重试');
   records[index] = { ...records[index], ...value };
   wx.setStorageSync(dataKey, records);
 }
-export async function deleteArrangement(id: string) {
-  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}`, 'DELETE'); return; }
-  wx.setStorageSync(dataKey, (await listArrangements()).filter(item => item.id !== id));
+export async function deleteArrangement(id: string, scope = 'one') {
+  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}` + (id.startsWith('r:') ? `?scope=${scope}` : ''), 'DELETE'); return; }
+  if (id.startsWith('r:')) { changeLocalRepeated(id, scope, null); return; }
+  const stored = wx.getStorageSync(dataKey);
+  wx.setStorageSync(dataKey, (Array.isArray(stored) ? stored : []).filter((item: Arrangement) => item.id !== id));
 }
 export function clearLocalDemo() {
+  wx.removeStorageSync('roundtable.demo.recurring.v1');
   wx.removeStorageSync('roundtable.demo.meeting-work.v1');
   wx.removeStorageSync('roundtable.demo.reviews.v1');
   wx.removeStorageSync('roundtable.demo.rooms.v1');

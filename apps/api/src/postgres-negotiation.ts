@@ -5,6 +5,7 @@ import {
   availabilityOf, isStale, validateDecision, validateProposalInput, validateSelectedSlot,
 } from './negotiation';
 import { TIME_ZONE, beijingInstant } from './time';
+import { RepeatSeries, expandRepeat } from './repeat-engine';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Transaction = <T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
@@ -37,7 +38,10 @@ export class PostgresNegotiation implements NegotiationStore {
         OR: [{ sourceRoomId: null }, { sourceRoomId: { not: room.id } }] },
       select: { startsAt: true, endsAt: true },
     });
-    return rows.map(row => ({ start: row.startsAt.getTime(), end: row.endsAt.getTime() }));
+    const series = await tx.recurringArrangement.findMany({ where: { ownerId: { in: shared } }, select: { document: true } });
+    const repeated = series.flatMap(row => expandRepeat(row.document as unknown as RepeatSeries, room.dateFrom, room.dateTo));
+    return [...rows.map(row => ({ start: row.startsAt.getTime(), end: row.endsAt.getTime() })),
+      ...repeated.map(item => ({ start: beijingInstant(item.date, item.startTime).getTime(), end: beijingInstant(item.date, item.endTime).getTime() }))];
   }
   private async compute(tx: Prisma.TransactionClient, room: NegotiationRoom): Promise<Availability> {
     return availabilityOf(room, await this.busy(tx, room));
@@ -112,6 +116,11 @@ export class PostgresNegotiation implements NegotiationStore {
         const conflict = await tx.arrangement.count({ where: { ownerId: member.userId, startsAt: { lt: end }, endsAt: { gt: start },
           OR: [{ sourceRoomId: null }, { sourceRoomId: { not: room.id } }] } });
         if (conflict) throw new BadRequestException('有成员在该时段已有其他安排，请重新选择时间');
+        const recurring = await tx.recurringArrangement.findMany({ where: { ownerId: member.userId }, select: { document: true } });
+        if (recurring.flatMap(row => expandRepeat(row.document as unknown as RepeatSeries, proposal.date, proposal.date))
+          .some(item => beijingInstant(item.date, item.startTime) < end && beijingInstant(item.date, item.endTime) > start)) {
+          throw new BadRequestException('有成员在该时段已有其他安排，请重新选择时间');
+        }
       }
       for (const member of room.members) {
         const existing = await tx.arrangement.findUnique({ where: { ownerId_sourceRoomId: { ownerId: member.userId, sourceRoomId: room.id } } });

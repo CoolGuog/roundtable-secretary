@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { repeatModules } from './mini-repeat-loader.mjs';
 
 const token = 'a'.repeat(64);
 const nextToken = 'b'.repeat(64);
@@ -22,7 +23,8 @@ function client(handler, initial = {}, configOverrides = {}, sharedStorage) {
   const exports = {};
   const source = fs.readFileSync('apps/miniprogram/src/services/secretary.ts', 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const context = vm.createContext({ wx, exports, require: () => ({ config: { mode: 'api', authMode: 'wechat', apiBase: 'http://127.0.0.1:3000', ...configOverrides } }) });
+  const modules = repeatModules(wx);
+  const context = vm.createContext({ wx, exports, require: name => name === './config' ? ({ config: { mode: 'api', authMode: 'wechat', apiBase: 'http://127.0.0.1:3000', ...configOverrides } }) : modules.get(name) });
   vm.runInContext(js, context);
   return { api: exports, storage, calls, logins: () => logins };
 }

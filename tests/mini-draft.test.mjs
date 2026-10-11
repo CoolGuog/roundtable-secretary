@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { repeatModules } from './mini-repeat-loader.mjs';
+const repeats = repeatModules({});
 class RequestError extends Error { constructor(message, statusCode) { super(message); this.statusCode = statusCode; } }
 const conflictsModule = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('apps/miniprogram/src/services/arrangement-conflicts.ts', 'utf8'),
@@ -12,11 +14,33 @@ function page(result, status = { mode: 'stub', canGenerate: true, message: '本�
   const api = { today: () => '2026-09-30', modeLabel: () => '测试', listArrangements: async () => [], saveArrangement: async () => saves++, draftFromText: async () => result, loadSecretaryStatus: async () => { if (status instanceof Error) throw status; return status; }, errorMessage: error => error.message };
   Object.assign(api, { RequestError }, overrides);
   const code = ts.transpileModule(fs.readFileSync('apps/miniprogram/src/pages/secretary/index.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
-  vm.runInNewContext(code, { exports: {}, require: name => name.endsWith('arrangement-conflicts') ? conflictsModule : api, wx: { showToast() {} }, Page: value => { instance = value; } });
+  vm.runInNewContext(code, { exports: {}, require: name => name.endsWith('repeat-engine') ? repeats.get('./repeat-engine') : name.endsWith('arrangement-conflicts') ? conflictsModule : api, wx: { showToast() {} }, Page: value => { instance = value; } });
   instance.setData = data => Object.assign(instance.data, data);
   instance.setData({ utterance: '开会', secretaryStatus: { mode: 'stub', canGenerate: true, message: '本地规则' } });
   return { instance, saves: () => saves };
 }
+
+test('手动表单独立于草稿，多个星期无结束日期提交；保存后恢复单次模式', async () => {
+  const values = [];
+  const c = page(null, undefined, { saveArrangement: async value => values.push(value) });
+  c.instance.openForm(); assert.equal(c.instance.data.formSource, 'manual');
+  c.instance.setData({ title: '早八', date: '2027-01-04', startTime: '08:30', endTime: '10:00' });
+  c.instance.onRepeat({ detail: { value: '2' } });
+  c.instance.onRepeatDays({ detail: { value: ['1', '3'] } });
+  await c.instance.save();
+  assert.equal(values.length, 1); assert.equal(values[0].repeat.kind, 'weekly');
+  assert.deepEqual(Array.from(values[0].repeat.weekdays), [1, 3]);
+  assert.equal('until' in values[0].repeat, false);
+  assert.equal(c.instance.data.repeatKind, 'once'); assert.equal(c.instance.data.showForm, false);
+});
+
+test('重复课表检查后续发生日期的冲突，只有用户明确确认才保存', async () => {
+  const c = page(null, undefined, { listArrangements: async () => [{ id: 'busy', title: '考试', date: '2027-01-06', startTime: '09:00', endTime: '10:00' }] });
+  c.instance.openForm(); c.instance.setData({ title: '课程', date: '2027-01-04', startTime: '08:30', endTime: '10:00' });
+  c.instance.onRepeat({ detail: { value: '2' } }); c.instance.onRepeatDays({ detail: { value: ['1', '3'] } });
+  await c.instance.save(); assert.equal(c.saves(), 0); assert.equal(c.instance.data.conflicts.length, 1);
+  await c.instance.confirmOverlap(); assert.equal(c.saves(), 1);
+});
 test('不完整草稿清空旧字段并阻止保存，补全后才可写入', async () => {
   const c = page({ status: 'NEEDS_INPUT', title: '新安排', date: null, startTime: null, endTime: null, usedMemories: [], message: '请补全' });
   c.instance.setData({ title: '旧安排', date: '2026-10-10', startTime: '08:00', endTime: '09:00' });

@@ -198,7 +198,7 @@ type StoredProposal = {
 
 export type NegotiationDeps = {
   room: (userId: string, roomId: string) => NegotiationRoom;
-  arrangements: (userId: string) => { date: string; startTime: string; endTime: string; sourceRoomId?: string }[];
+  arrangements: (userId: string, from: string, to: string) => Promise<{ date: string; startTime: string; endTime: string; sourceRoomId?: string }[]>;
   createArrangements: (entries: { userId: string; value: ArrangementInput; sourceRoomId: string }[]) => void;
   name: (userId: string) => string;
 };
@@ -218,12 +218,12 @@ export function isStale(proposal: Pick<StoredProposal, 'status' | 'expiresAt' | 
 }
 
 export class MemoryNegotiation implements NegotiationStore {
+  private decisionQueue: Promise<unknown> = Promise.resolve();
   private readonly proposals: StoredProposal[] = [];
   constructor(private readonly deps: NegotiationDeps) {}
-  private busy(room: NegotiationRoom): Interval[] {
-    return room.members
-      .filter(member => member.shareBusy)
-      .flatMap(member => this.deps.arrangements(member.userId).filter(item => item.sourceRoomId !== room.id).map(item => ({
+  private async busy(room: NegotiationRoom): Promise<Interval[]> {
+    const rows = await Promise.all(room.members.filter(member => member.shareBusy).map(member => this.deps.arrangements(member.userId, room.dateFrom, room.dateTo)));
+    return rows.flatMap(items => items.filter(item => item.sourceRoomId !== room.id).map(item => ({
         start: beijingInstant(item.date, item.startTime).getTime(),
         end: beijingInstant(item.date, item.endTime).getTime(),
       })));
@@ -239,16 +239,18 @@ export class MemoryNegotiation implements NegotiationStore {
   private latest(roomId: string) {
     return [...this.proposals].reverse().find(item => item.roomId === roomId) ?? null;
   }
-  availability(userId: string, roomId: string): Availability {
+  async availability(userId: string, roomId: string): Promise<Availability> {
     const room = this.deps.room(userId, roomId);
     if (room.status !== 'OPEN') throw new BadRequestException('圆桌已关闭，不能再协商');
-    return availabilityOf(room, this.busy(room));
+    return availabilityOf(room, await this.busy(room));
   }
-  createProposal(userId: string, roomId: string, value: unknown): Proposal {
+  async createProposal(userId: string, roomId: string, value: unknown): Promise<Proposal> {
     const room = this.deps.room(userId, roomId);
     if (room.status !== 'OPEN') throw new BadRequestException('圆桌已关闭，不能再协商');
     const slot = validateProposalInput(value);
-    validateSelectedSlot(room, slot, this.busy(room));
+    validateSelectedSlot(room, slot, await this.busy(room));
+    const current = this.deps.room(userId, roomId);
+    if (current.status !== 'OPEN' || current.version !== room.version) throw new BadRequestException('圆桌信息已变化，请重新协商');
     const existing = this.open(roomId);
     if (existing && isStale(existing, room.version)) existing.status = 'EXPIRED';
     if (this.open(roomId)) throw new BadRequestException('已有一个待确认方案，请先完成确认或撤回');
@@ -265,7 +267,12 @@ export class MemoryNegotiation implements NegotiationStore {
     if (isStale(proposal, room.version)) proposal.status = 'EXPIRED';
     return this.dto(proposal, room, userId);
   }
-  decide(userId: string, roomId: string, proposalId: string, value: unknown): Proposal {
+  async decide(userId: string, roomId: string, proposalId: string, value: unknown): Promise<Proposal> {
+    const result = this.decisionQueue.then(() => this.decideNow(userId, roomId, proposalId, value));
+    this.decisionQueue = result.catch(() => undefined);
+    return result;
+  }
+  private async decideNow(userId: string, roomId: string, proposalId: string, value: unknown): Promise<Proposal> {
     const decision = validateDecision(value);
     const room = this.deps.room(userId, roomId);
     const proposal = this.proposals.find(item => item.id === proposalId && item.roomId === roomId);
@@ -283,10 +290,11 @@ export class MemoryNegotiation implements NegotiationStore {
       const end = beijingInstant(proposal.date, proposal.endTime).getTime();
       // 写入前统一检查：任何成员在该时段已有安排都整体放弃，避免写出互相冲突的日程。
       for (const member of room.members) {
-        const conflict = this.deps.arrangements(member.userId).filter(item => item.sourceRoomId !== room.id).some(item =>
+        const conflict = (await this.deps.arrangements(member.userId, proposal.date, proposal.date)).filter(item => item.sourceRoomId !== room.id).some(item =>
           overlaps(start, end, beijingInstant(item.date, item.startTime).getTime(), beijingInstant(item.date, item.endTime).getTime()));
         if (conflict) throw new BadRequestException('有成员在该时段已有其他安排，请重新选择时间');
       }
+      if (proposal.status !== 'OPEN' || isStale(proposal, this.deps.room(userId, roomId).version)) throw new BadRequestException('圆桌信息或方案已变化，请重新协商');
       this.deps.createArrangements(room.members.map(member => ({ userId: member.userId, sourceRoomId: room.id,
         value: { title: room.title, date: proposal.date, startTime: proposal.startTime, endTime: proposal.endTime } })));
       proposal.status = 'CONFIRMED';

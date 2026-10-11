@@ -80,6 +80,7 @@ model User {
 
   memories     PersonalMemory[]
   arrangements Arrangement[]
+  recurringArrangements RecurringArrangement[]
   arrangementCreateRequests ArrangementCreateRequest[]
   demoSessions DemoSession[]
   wechatSessions WechatSession[]
@@ -275,6 +276,17 @@ model Arrangement {
   @@index([ownerId, startsAt])
   @@unique([ownerId, sourceRoomId])
   @@map("arrangements")
+}
+
+model RecurringArrangement {
+  id String @id @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  document Json
+  requestKey String? @map("request_key") @db.VarChar(36)
+  fingerprint String
+  @@unique([ownerId, requestKey])
+  @@map("recurring_arrangements")
 }
 
 /// 保存请求的持久记录；删除日程后保留编号，防止迟到重试将其重新创建。

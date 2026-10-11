@@ -3,15 +3,19 @@ import {
 } from '../../services/secretary';
 import type { Arrangement } from '../../services/secretary';
 import { validateDraft, findConflicts, conflictSignature } from '../../services/arrangement-conflicts';
+import { repeatRule, expandRepeat, RepeatSeries } from '../../services/repeat-engine';
 
 Page({
   data: {
-    mode: modeLabel(), count: 0, showForm: false, saving: false, error: '',
+    mode: modeLabel(), count: 0, showForm: false, formSource: 'manual', saving: false, error: '',
     title: '', date: today(), startTime: '19:00', endTime: '20:00',
     utterance: '', drafting: false, draft: null as ScheduleDraft | null, draftMemoryNote: '',
     secretaryStatus: null as SecretaryStatus | null, statusLoading: false, statusError: '',
     messages: [] as Array<{ id: number; role: string; text: string }>, turns: 0,
     checking: false, conflicts: [] as Arrangement[],
+    repeatKind: 'once', repeatOptions: ['仅当天', '每天', '每周固定'], repeatIndex: 0,
+    weekdays: [{ value: 1, label: '周一' }, { value: 2, label: '周二' }, { value: 3, label: '周三' }, { value: 4, label: '周四' }, { value: 5, label: '周五' }, { value: 6, label: '周六' }, { value: 0, label: '周日' }],
+    repeatDays: [] as number[], repeatUntil: today(),
   },
   _statusEpoch: 0,
   _draftEpoch: 0,
@@ -35,19 +39,27 @@ Page({
     catch (error) { if (epoch === this._statusEpoch) this.setData({ statusError: errorMessage(error) }); }
     finally { if (epoch === this._statusEpoch) this.setData({ statusLoading: false }); }
   },
-  openForm() { if (!this.data.drafting && !this.data.saving) this.setData({ showForm: true, error: '' }); },
+  openForm() { if (!this.data.drafting && !this.data.saving) this.setData({ showForm: true, formSource: 'manual', error: '' }); },
   closeForm() { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ showForm: false }); } },
   onUtterance(event: WechatMiniprogram.Input) { this.setData({ utterance: event.detail.value }); },
   onTitle(event: WechatMiniprogram.Input) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ title: event.detail.value, error: '' }); } },
   onDate(event: WechatMiniprogram.PickerChange) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ date: String(event.detail.value), error: '' }); } },
   onStart(event: WechatMiniprogram.PickerChange) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ startTime: String(event.detail.value), error: '' }); } },
   onEnd(event: WechatMiniprogram.PickerChange) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ endTime: String(event.detail.value), error: '' }); } },
+  onRepeat(event: WechatMiniprogram.PickerChange) {
+    if (this.data.saving) return;
+    const index = Number(event.detail.value); this.invalidateConflicts();
+    const day = new Date((this.data.date || today()) + 'T00:00:00Z').getUTCDay();
+    this.setData({ repeatIndex: index, repeatKind: ['once', 'daily', 'weekly'][index], repeatUntil: this.data.date || today(), repeatDays: [day], weekdays: this.data.weekdays.map((item: { value: number; label: string }) => ({ ...item, checked: item.value === day })) });
+  },
+  onRepeatDays(event: WechatMiniprogram.CheckboxGroupChange) { if (!this.data.saving) { this.invalidateConflicts(); const days = event.detail.value.map(Number); this.setData({ repeatDays: days, weekdays: this.data.weekdays.map((item: { value: number; label: string }) => ({ ...item, checked: days.includes(item.value) })) }); } },
+  onRepeatUntil(event: WechatMiniprogram.PickerChange) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ repeatUntil: String(event.detail.value) }); } },
   resetDraft() {
     if (this.data.saving) return;
     this._draftEpoch++;
     this.invalidateConflicts();
     this.setData({ utterance: '', drafting: false, draft: null, draftMemoryNote: '', messages: [], turns: 0,
-      showForm: false, title: '', date: today(), startTime: '19:00', endTime: '20:00', error: '' });
+      showForm: false, title: '', date: today(), startTime: '19:00', endTime: '20:00', error: '', repeatKind: 'once', repeatIndex: 0, repeatDays: [] });
   },
   sendReply() { return this.generate(true); },
   // 只整理成草稿：解析出来的字段填进下面的表单，仍然要用户点一次确认才写入。
@@ -74,6 +86,8 @@ Page({
       const reply = draft.status === 'READY' ? `${draft.message}\n当前草稿：${draft.title}，${draft.date} ${draft.startTime}—${draft.endTime}。` : draft.message;
       this.setData({
         draft,
+        formSource: 'draft',
+        ...(followup ? {} : { repeatKind: 'once', repeatIndex: 0, repeatDays: [] }),
         utterance: draft.status === 'UNAVAILABLE' ? utterance : '',
         turns: (followup ? this.data.turns : 0) + 1,
         messages: [...messages, { id: messages.length, role: 'user', text: utterance }, { id: messages.length + 1, role: 'secretary', text: reply }],
@@ -92,17 +106,23 @@ Page({
   async save(allowOverlap: unknown = false) {
     if (this._disposed || this.data.saving || this.data.drafting || this.data.checking) return;
     const { title, date, startTime, endTime } = this.data;
-    const input = { title: title.trim(), date, startTime, endTime };
+    const input: import('../../services/secretary').ArrangementInput = { title: title.trim(), date, startTime, endTime };
+    if (this.data.repeatKind !== 'once') {
+      try { input.repeat = repeatRule({ kind: this.data.repeatKind, weekdays: this.data.repeatDays, ...(this.data.repeatKind === 'daily' ? { until: this.data.repeatUntil } : {}) }, date); }
+      catch (error) { this.setData({ error: errorMessage(error) }); return; }
+    }
     const invalid = validateDraft(input);
     if (invalid) { this.invalidateConflicts(); this.setData({ error: invalid }); return; }
     const epoch = ++this._checkEpoch;
     const reviewed = allowOverlap === true ? this._conflictSignature : '';
     this.setData({ checking: true, error: '' });
     try {
-      const items = await listArrangements();
+      const checkedEnd = input.repeat ? input.repeat.until && input.repeat.until < new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10) ? input.repeat.until : new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10) : date;
+      const items = await listArrangements(date, checkedEnd);
       if (epoch !== this._checkEpoch) return;
-      const conflicts = findConflicts(input, items);
-      const signature = conflictSignature(input, conflicts);
+      const occurrences = input.repeat ? expandRepeat({ ...input, repeat: input.repeat, id: 'preview', createdAt: '', exceptions: {} } as RepeatSeries, date, checkedEnd) : [input];
+      const conflicts = items.filter(item => occurrences.some(occurrence => findConflicts(occurrence, [item]).length > 0));
+      const signature = conflictSignature(input, conflicts) + JSON.stringify(input.repeat);
       this.setData({ count: items.length, conflicts });
       if (conflicts.length && reviewed !== signature) {
         this._conflictSignature = signature;
@@ -122,7 +142,7 @@ Page({
       await saveArrangement(input);
       if (this._disposed) return;
       this.invalidateConflicts();
-      this.setData({ showForm: false, title: '', utterance: '', draft: null, draftMemoryNote: '', turns: 0,
+      this.setData({ showForm: false, title: '', utterance: '', draft: null, draftMemoryNote: '', turns: 0, repeatKind: 'once', repeatIndex: 0, repeatDays: [],
         messages: [...this.data.messages, { id: this.data.messages.length, role: 'secretary', text: '已保存到日程。可以开始下一条安排。' }] });
       wx.showToast({ title: '安排已保存', icon: 'success' });
       const countEpoch = ++this._countEpoch;

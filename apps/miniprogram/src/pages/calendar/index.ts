@@ -10,6 +10,7 @@ Page({
     query: '', filter: 'all' as CalendarFilter, selectedDate: '', filters: calendarFilters,
     groups: [] as CalendarGroup[], matchingCount: 0, filterActive: false,
     counts: { all: 0, today: 0, upcoming: 0, past: 0 },
+    editScope: 'one', editRepeated: false,
   },
   _visible: false, _disposed: false, _viewEpoch: 0, _readEpoch: 0,
   _clockTimer: null as number | null,
@@ -33,15 +34,15 @@ Page({
     if (!calendarFilters.some(entry => entry.value === filter)) return;
     this.setData({ filter }); this.refreshView();
   },
-  onSelectedDate(event: WechatMiniprogram.PickerChange) { this.setData({ selectedDate: String(event.detail.value) }); this.refreshView(); },
-  clearFilters() { this.setData({ query: '', filter: 'all', selectedDate: '' }); this.refreshView(); },
+  onSelectedDate(event: WechatMiniprogram.PickerChange) { this.setData({ selectedDate: String(event.detail.value) }); this.refreshView(); void this.reload(); },
+  clearFilters() { const changedRange = Boolean(this.data.selectedDate); this.setData({ query: '', filter: 'all', selectedDate: '' }); this.refreshView(); if (changedRange) void this.reload(); },
   async reload() {
     if (!this._visible) return;
     const epoch = ++this._readEpoch;
     this.setData({ loading: true, error: '', items: [] });
     this.refreshView();
     try {
-      const items = await listArrangements();
+      const items = await listArrangements(this.data.selectedDate || undefined, this.data.selectedDate || undefined);
       if (this._visible && epoch === this._readEpoch) { this.setData({ items }); this.refreshView(); }
     }
     catch (error) { if (this._visible && epoch === this._readEpoch) this.setData({ error: errorMessage(error) }); }
@@ -49,13 +50,20 @@ Page({
   },
   add() { wx.switchTab({ url: '/pages/secretary/index' }); },
   openWeek() { wx.navigateTo({ url: '/pages/week/index' }); },
-  openEdit(event: WechatMiniprogram.TouchEvent) {
+  openEdit(event: { currentTarget: { dataset: Record<string, string> } }) {
     if (!this._visible || this.data.loading || this.data.saving || this.data.deletingId) return;
     const id = String(event.currentTarget.dataset.id);
     const item = this.data.items.find((entry: Arrangement) => entry.id === id);
     if (!item) { this.setData({ error: '这条安排已不存在，请刷新后重试' }); return; }
-    this.setData({ editingId: id, editTitle: item.title, editDate: item.date,
-      editStart: item.startTime, editEnd: item.endTime, error: '' });
+    if (item.seriesId && !event.currentTarget.dataset.scope) {
+      const epoch = this._viewEpoch; this.setData({ saving: true });
+      wx.showActionSheet({ itemList: ['仅修改本次', '修改本次及以后'],
+        success: result => { if (this._visible && epoch === this._viewEpoch) { this.setData({ saving: false }); this.openEdit({ currentTarget: { dataset: { id, scope: result.tapIndex === 0 ? 'one' : 'future' } } }); } },
+        complete: () => { if (!this._disposed) this.setData({ saving: false }); },
+      }); return;
+    }
+    this.setData({ editingId: id, editTitle: item.title, editDate: item.seriesId && event.currentTarget.dataset.scope === 'future' ? id.split(':')[2] : item.date,
+      editStart: item.startTime, editEnd: item.endTime, error: '', editRepeated: Boolean(item.seriesId), editScope: event.currentTarget.dataset.scope || 'one' });
   },
   closeEdit() { if (!this.data.saving && !this.data.deletingId) this.setData({ editingId: '' }); },
   onEditTitle(event: WechatMiniprogram.Input) { this.setData({ editTitle: event.detail.value }); },
@@ -68,7 +76,7 @@ Page({
     this.setData({ saving: true, error: '' });
     try {
       const { editingId, editTitle, editDate, editStart, editEnd } = this.data;
-      await updateArrangement(editingId, { title: editTitle, date: editDate, startTime: editStart, endTime: editEnd });
+      await updateArrangement(editingId, { title: editTitle, date: editDate, startTime: editStart, endTime: editEnd }, this.data.editScope);
       if (!this._visible || viewEpoch !== this._viewEpoch) return;
       this.setData({ editingId: '' });
       await this.reload();
@@ -81,18 +89,26 @@ Page({
       }
     }
   },
-  remove(event: WechatMiniprogram.TouchEvent) {
+  remove(event: { currentTarget: { dataset: Record<string, string> } }) {
     if (!this._visible || this.data.loading || this.data.saving || this.data.deletingId) return;
     const id = String(event.currentTarget.dataset.id);
     const item = this.data.items.find((entry: Arrangement) => entry.id === id);
     if (!item) { this.setData({ error: '这条安排已不存在，请刷新后重试' }); return; }
+    if (item.seriesId && !event.currentTarget.dataset.scope) {
+      const epoch = this._viewEpoch; this.setData({ deletingId: id });
+      wx.showActionSheet({ itemList: ['仅删除本次', '删除本次及以后'],
+        success: result => { if (this._visible && epoch === this._viewEpoch) { this.setData({ deletingId: '' }); this.remove({ currentTarget: { dataset: { id, scope: result.tapIndex === 0 ? 'one' : 'future' } } }); } },
+        fail: () => { if (!this._disposed) this.setData({ deletingId: '' }); },
+      }); return;
+    }
+    const scope = event.currentTarget.dataset.scope || 'one';
     const viewEpoch = this._viewEpoch;
     this.setData({ deletingId: id, error: '' });
-    wx.showModal({ title: '删除这条安排？', content: `“${item.title}”将被删除，其他记录不受影响。`, confirmText: '删除',
+    wx.showModal({ title: scope === 'future' ? '删除本次及以后？' : '删除这条安排？', content: scope === 'future' ? `“${item.title}”从 ${item.date} 起不再重复，之前的历史保留。` : `“${item.title}”本次将被删除，其他记录不受影响。`, confirmText: '删除',
       success: async result => {
         try {
           if (!result.confirm || !this._visible || viewEpoch !== this._viewEpoch) return;
-          await deleteArrangement(id);
+          await deleteArrangement(id, scope);
           if (!this._visible || viewEpoch !== this._viewEpoch) return;
           if (this.data.editingId === id) this.setData({ editingId: '', editTitle: '', editDate: '', editStart: '', editEnd: '' });
           await this.reload();
