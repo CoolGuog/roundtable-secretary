@@ -3,14 +3,18 @@ import {
 } from '../../services/secretary';
 import { CalendarFilter, CalendarGroup, calendarFilters, calendarView } from '../../services/calendar-view';
 
+const currentDay = () => new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+const shiftDay = (date: string, offset: number) => new Date(Date.parse(date + 'T00:00:00Z') + offset * 86400000).toISOString().slice(0, 10);
 Page({
   data: {
     items: [] as Arrangement[], loading: false, error: '', mode: modeLabel(),
     editingId: '', editTitle: '', editDate: '', editStart: '', editEnd: '', saving: false, deletingId: '',
-    query: '', filter: 'all' as CalendarFilter, selectedDate: '', filters: calendarFilters,
+    query: '', filter: 'all' as CalendarFilter, selectedDate: currentDay(), filters: calendarFilters, category: 'all', toolsOpen: false,
+    categories: [{ value: 'all', label: '全部' }, { value: 'once', label: '单次' }, { value: 'daily', label: '每天' }, { value: 'weekly', label: '每周固定' }],
+    categoryCounts: { all: 0, once: 0, daily: 0, weekly: 0 }, days: [] as Array<{ date: string; label: string; number: string }>,
     groups: [] as CalendarGroup[], matchingCount: 0, filterActive: false,
     counts: { all: 0, today: 0, upcoming: 0, past: 0 },
-    editScope: 'one', editRepeated: false,
+    editScope: 'one', editRepeated: false, editUntil: '',
   },
   _visible: false, _disposed: false, _viewEpoch: 0, _readEpoch: 0,
   _clockTimer: null as number | null,
@@ -26,16 +30,33 @@ Page({
     }, 60_000 - Date.now() % 60_000);
   },
   refreshView() {
-    this.setData(calendarView(this.data.items, this.data.query, this.data.filter, this.data.selectedDate, new Date()));
+    const date = this.data.selectedDate;
+    const onDay = this.data.items.filter((item: Arrangement) => item.date === date);
+    const type = (item: Arrangement) => item.repeatKind || (item.seriesId ? item.repeatLabel === '每天重复' ? 'daily' : 'weekly' : 'once');
+    const categoryCounts = { all: onDay.length, once: 0, daily: 0, weekly: 0 };
+    for (const item of onDay) categoryCounts[type(item) as 'once' | 'daily' | 'weekly']++;
+    const filtered = onDay.filter((item: Arrangement) => this.data.category === 'all' || type(item) === this.data.category);
+    const weekday = new Date(date + 'T00:00:00Z').getUTCDay();
+    const monday = shiftDay(date, -((weekday + 6) % 7));
+    const days = Array.from({ length: 7 }, (_, index) => { const day = shiftDay(monday, index); return { date: day, label: '一二三四五六日'[index], number: day.slice(8) }; });
+    this.setData({ ...calendarView(filtered, this.data.query, this.data.filter, date, new Date()), categoryCounts, days,
+      filterActive: Boolean(this.data.query.trim() || this.data.filter !== 'all' || this.data.category !== 'all' || date !== currentDay()) });
   },
+  toggleTools() { this.setData({ toolsOpen: !this.data.toolsOpen }); },
+  onCategory(event: WechatMiniprogram.TouchEvent) { const category = String(event.currentTarget.dataset.category); if (this.data.categories.some((entry: { value: string }) => entry.value === category)) { this.setData({ category }); this.refreshView(); } },
+  onDay(event: WechatMiniprogram.TouchEvent) { this.selectDay(String(event.currentTarget.dataset.date)); },
+  selectDay(date: string) { if (date < '2020-01-01' || date > '2099-12-31') return; this.setData({ selectedDate: date }); this.refreshView(); void this.reload(); },
+  previousDay() { this.selectDay(shiftDay(this.data.selectedDate, -1)); },
+  nextDay() { this.selectDay(shiftDay(this.data.selectedDate, 1)); },
+  today() { this.selectDay(currentDay()); },
   onSearch(event: WechatMiniprogram.Input) { this.setData({ query: event.detail.value.slice(0, 60) }); this.refreshView(); },
   onFilter(event: WechatMiniprogram.TouchEvent) {
     const filter = event.currentTarget.dataset.filter as CalendarFilter;
     if (!calendarFilters.some(entry => entry.value === filter)) return;
     this.setData({ filter }); this.refreshView();
   },
-  onSelectedDate(event: WechatMiniprogram.PickerChange) { this.setData({ selectedDate: String(event.detail.value) }); this.refreshView(); void this.reload(); },
-  clearFilters() { const changedRange = Boolean(this.data.selectedDate); this.setData({ query: '', filter: 'all', selectedDate: '' }); this.refreshView(); if (changedRange) void this.reload(); },
+  onSelectedDate(event: WechatMiniprogram.PickerChange) { this.selectDay(String(event.detail.value)); },
+  clearFilters() { const changedRange = this.data.selectedDate !== currentDay(); this.setData({ query: '', filter: 'all', category: 'all', selectedDate: currentDay() }); this.refreshView(); if (changedRange) void this.reload(); },
   async reload() {
     if (!this._visible) return;
     const epoch = ++this._readEpoch;
@@ -63,20 +84,22 @@ Page({
       }); return;
     }
     this.setData({ editingId: id, editTitle: item.title, editDate: item.seriesId && event.currentTarget.dataset.scope === 'future' ? id.split(':')[2] : item.date,
-      editStart: item.startTime, editEnd: item.endTime, error: '', editRepeated: Boolean(item.seriesId), editScope: event.currentTarget.dataset.scope || 'one' });
+      editStart: item.startTime, editEnd: item.endTime, editUntil: item.repeatUntil || '', error: '', editRepeated: Boolean(item.seriesId), editScope: event.currentTarget.dataset.scope || 'one' });
   },
   closeEdit() { if (!this.data.saving && !this.data.deletingId) this.setData({ editingId: '' }); },
   onEditTitle(event: WechatMiniprogram.Input) { this.setData({ editTitle: event.detail.value }); },
   onEditDate(event: WechatMiniprogram.PickerChange) { this.setData({ editDate: String(event.detail.value) }); },
   onEditStart(event: WechatMiniprogram.PickerChange) { this.setData({ editStart: String(event.detail.value) }); },
   onEditEnd(event: WechatMiniprogram.PickerChange) { this.setData({ editEnd: String(event.detail.value) }); },
+  onEditUntil(event: WechatMiniprogram.PickerChange) { this.setData({ editUntil: String(event.detail.value) }); },
   async submitEdit() {
     if (!this._visible || this.data.saving || this.data.deletingId || this.data.loading || !this.data.editingId) return;
     const viewEpoch = this._viewEpoch;
     this.setData({ saving: true, error: '' });
     try {
       const { editingId, editTitle, editDate, editStart, editEnd } = this.data;
-      await updateArrangement(editingId, { title: editTitle, date: editDate, startTime: editStart, endTime: editEnd }, this.data.editScope);
+      await updateArrangement(editingId, { title: editTitle, date: editDate, startTime: editStart, endTime: editEnd,
+        ...(this.data.editRepeated && this.data.editScope === 'future' && this.data.editUntil ? { repeatUntil: this.data.editUntil } : {}) }, this.data.editScope);
       if (!this._visible || viewEpoch !== this._viewEpoch) return;
       this.setData({ editingId: '' });
       await this.reload();

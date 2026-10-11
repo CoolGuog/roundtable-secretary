@@ -19,12 +19,12 @@ function setup() {
   let time = Date.parse('2026-10-02T02:30:00Z'), timerId = 0, reads = 0;
   const timers = new Map();
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [time])); } static now() { return time; } }
-  const modals = [], sheets = [], deleted = [], updated = [], scopes = [], toasts = [];
+  const modals = [], sheets = [], deleted = [], updated = [], scopes = [], toasts = [], ranges = [];
   const rows = [{ id: 'a', title: '课程讨论', date: '2026-10-02', startTime: '09:00', endTime: '10:00' },
     { id: 'b', title: '读书', date: '2026-10-02', startTime: '11:00', endTime: '12:00' }];
   const api = {
     modeLabel: () => '后台模式', errorMessage: error => error.message,
-    listArrangements: async () => { reads++; return structuredClone(rows); },
+    listArrangements: async (from, to) => { reads++; ranges.push([from, to]); return structuredClone(rows); },
     deleteArrangement: async (id, scope) => { deleted.push(id); scopes.push(scope); rows.splice(rows.findIndex(row => row.id === id), 1); },
     updateArrangement: async (id, fields, scope) => { updated.push(id); scopes.push(scope); Object.assign(rows.find(row => row.id === id), fields); },
   };
@@ -33,10 +33,26 @@ function setup() {
     wx: { showModal: modal => modals.push(modal), showActionSheet: sheet => sheets.push(sheet), showToast: toast => toasts.push(toast), switchTab() {} },
   });
   page.setData = data => Object.assign(page.data, data);
-  return { page, api, rows, modals, sheets, scopes, deleted, updated, toasts, timers, reads: () => reads,
+  return { page, api, rows, modals, sheets, scopes, deleted, updated, toasts, timers, ranges, reads: () => reads,
     tick(value) { time = Date.parse(value); const jobs = [...timers.values()]; timers.clear(); jobs.forEach(job => job()); },
     async open() { page.onShow(); await settle(); } };
 }
+
+test('默认按当天展示并区分三种安排，切换远期日期重新读取，分类不联网', async () => {
+  const c = setup();
+  c.rows.push({ id: 'daily', seriesId: 'series', repeatKind: 'daily', title: '早餐', date: '2026-10-02', startTime: '08:00', endTime: '08:30' });
+  c.rows.push({ id: 'weekly', seriesId: 'series2', repeatKind: 'weekly', title: '课程', date: '2026-10-02', startTime: '13:00', endTime: '14:00' });
+  c.rows.push({ id: 'tomorrow', title: '明天活动', date: '2026-10-03', startTime: '13:00', endTime: '14:00' });
+  await c.open();
+  assert.equal(c.page.data.selectedDate, '2026-10-02'); assert.equal(c.page.data.matchingCount, 4);
+  assert.deepEqual({ ...c.page.data.categoryCounts }, { all: 4, once: 2, daily: 1, weekly: 1 });
+  assert.equal(c.page.data.days.length, 7); assert.equal(c.page.data.toolsOpen, false);
+  const reads = c.reads(); c.page.onCategory({ currentTarget: { dataset: { category: 'weekly' } } });
+  assert.equal(c.page.data.groups[0].records[0].id, 'weekly'); assert.equal(c.reads(), reads);
+  c.page.onSelectedDate({ detail: { value: '2030-01-02' } }); await settle();
+  assert.deepEqual(c.ranges.at(-1), ['2030-01-02', '2030-01-02']);
+  assert.equal(c.page.data.matchingCount, 0);
+});
 
 test('重复安排先选操作范围，删除仍需确认；取消或离页的旧选择不能写入', async () => {
   const c = setup(); c.rows[0].seriesId = 'series'; await c.open();

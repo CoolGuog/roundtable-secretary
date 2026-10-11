@@ -1,3 +1,4 @@
+<feedback-toast message="{{error}}" />
 <view class="page">
   <text class="eyebrow">YOUR SECRETARY</text><view class="title">由你掌握。</view>
   <view class="subtitle">当前版本 0.1 · {{mode}}</view>
@@ -7,7 +8,7 @@
     <view class="subtitle spaced">{{loggedIn ? '已保存登录状态。日程随微信账号保存。' : '登录后查看和保存本人的日程。'}}</view>
     <button class="primary" wx:if="{{!loggedIn}}" loading="{{busy}}" disabled="{{busy}}" bindtap="signIn">微信登录</button>
     <button class="secondary" wx:else loading="{{busy}}" disabled="{{busy}}" bindtap="signOut">退出登录</button>
-    <view class="error" wx:if="{{error}}">{{error}}</view>
+
   </view>
   <view class="card"><view class="row"><view class="card-title">模型连接</view><text class="badge">尚未开放</text></view><view class="subtitle spaced">密钥加密存储和调用隔离验证完成前，不收集真实 API Key。当前页面没有密钥输入入口。</view></view>
   <view class="card"><view class="card-title">关于这次演示</view><view class="subtitle spaced">本机模式在当前设备保存虚构安排。微信登录模式下，重新登录可找回本人日程；演示身份过期后无法自动找回。请只使用虚构数据。</view><button class="secondary" bindtap="clear">清除本机演示数据</button></view>

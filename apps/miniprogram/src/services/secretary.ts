@@ -4,7 +4,7 @@ import { RepeatRule, repeatWindow, repeatRule, validDay } from './repeat-engine'
 import { localRepeated, saveLocalRepeated, changeLocalRepeated } from './local-repeated';
 
 export interface ArrangementInput { title: string; date: string; startTime: string; endTime: string; repeat?: RepeatRule; }
-export interface Arrangement extends ArrangementInput { id: string; createdAt: string; repeatLabel?: string; seriesId?: string; }
+export interface Arrangement extends ArrangementInput { id: string; createdAt: string; repeatLabel?: string; seriesId?: string; repeatKind?: 'daily' | 'weekly'; repeatUntil?: string; }
 const dataKey = 'roundtable.demo.arrangements.v1';
 const legacySessionKey = 'roundtable.demo.session.v1';
 // Only local demo previews use A/B identities; real WeChat sessions retain their existing keys.
@@ -176,7 +176,7 @@ export async function saveArrangement(input: ArrangementInput): Promise<void> {
   records.push({ ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, createdAt: new Date().toISOString() });
   wx.setStorageSync(dataKey, records);
 }
-export async function updateArrangement(id: string, input: ArrangementInput, scope = 'one'): Promise<void> {
+export async function updateArrangement(id: string, input: ArrangementInput & { repeatUntil?: string }, scope = 'one'): Promise<void> {
   const value = validate(input);
   if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}`, 'PUT', id.startsWith('r:') ? { ...value, scope } : value); return; }
   if (id.startsWith('r:')) { changeLocalRepeated(id, scope, value); return; }

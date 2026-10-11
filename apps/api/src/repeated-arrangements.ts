@@ -49,9 +49,10 @@ export class RepeatedArrangements {
     try { parsed = occurrenceId(id); } catch { throw new NotFoundException('重复安排不存在'); }
     const apply = (series: RepeatSeries) => {
       if (!occurs(series, parsed.date) || series.exceptions[parsed.date] === null) throw new NotFoundException('重复安排不存在');
-      const input = value === null ? null : validateArrangement(value);
+      const { repeatUntil, ...fields } = value === null ? {} : inputObject(value);
+      const input = value === null ? null : validateArrangement(fields);
       try {
-        const changed = reviseRepeat(series, parsed.date, scope, input);
+        const changed = reviseRepeat(series, parsed.date, scope, input, repeatUntil);
         if (changed.next) changed.next = { ...changed.next, id: randomUUID(), createdAt: new Date().toISOString() };
         return changed;
       } catch (error) { throw new BadRequestException(error instanceof Error ? error.message : '重复安排操作失败'); }

@@ -1,8 +1,9 @@
+<feedback-toast message="{{error}}" />
 <view class="page">
   <text class="eyebrow">MEETING REVIEW</text><view class="title">把经过说清楚。</view>
   <view class="subtitle">记录会议未举办的原因，明确责任与下一步。</view>
   <view class="notice">{{local ? '本机模式只保存复盘草稿，不能代替伙伴确认。多人逐人确认需要后台模式。' : '比例是参与者提出的分配建议。全员确认后才达成共识，任何人都可以提出异议；系统不会自动判定谁有责任。'}}</view>
-  <view wx:if="{{error}}" class="error">{{error}}</view>
+
   <button class="secondary refresh-review" bindtap="reload" disabled="{{busy || loading}}">{{loading ? '正在读取…' : '刷新复盘'}}</button>
   <block wx:if="{{room && view}}">
     <view class="card"><view class="card-title">{{room.title}}</view><view class="muted spaced">{{room.dateFrom}} 至 {{room.dateTo}} · 北京时间</view><view class="badge spaced">{{currentStatus}}</view>

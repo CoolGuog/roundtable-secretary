@@ -15,3 +15,17 @@
 .record-state { display: inline-block; margin-top: 8rpx; color: #536c58; font-size: 22rpx; }
 .record-state.ongoing { color: #236b49; font-weight: 600; }
 .record-state.past { color: #858b83; }
+
+.compact-calendar { padding-top: 24rpx; }
+.calendar-tools { margin-top: 16rpx; }
+.day-arrow { margin: 0; padding: 0; min-width: 52rpx; background: transparent; color: #214e3d; line-height: 64rpx; font-size: 46rpx; }
+.selected-date { font-size: 29rpx; font-weight: 600; color: #315541; }
+.date-navigation { gap: 6rpx; }
+.week-strip { display: flex; gap: 6rpx; margin-top: 18rpx; }
+.day-cell { flex: 1; margin: 0; padding: 12rpx 0; border-radius: 16rpx; background: #f5f6f2; color: #3c5848; font-size: 28rpx; line-height: 1.6; }
+.day-cell text { display: block; }
+.day-cell .weekday { font-size: 22rpx; opacity: .7; }
+.day-cell.selected { background: #214e3d; color: #fff; }
+.list-toolbar { margin-top: 14rpx; }
+.advanced-tools { margin: 12rpx 0; padding: 16rpx; border-radius: 16rpx; background: #f8f9f5; }
+.repeat-meta { margin-top: 6rpx; color: #6a766d; font-size: 22rpx; }

@@ -27,10 +27,10 @@ export function occurs(series: RepeatSeries, date: string) {
     (series.repeat.kind === 'daily' || series.repeat.weekdays.includes(new Date(date + 'T00:00:00Z').getUTCDay()));
 }
 export function expandRepeat(series: RepeatSeries, from: string, to: string) {
-  const result: Array<RepeatBase & { id: string; createdAt: string; repeatLabel: string; seriesId: string }> = [];
+  const result: Array<RepeatBase & { id: string; createdAt: string; repeatLabel: string; seriesId: string; repeatKind: 'daily' | 'weekly'; repeatUntil?: string }> = [];
   const label = series.repeat.kind === 'daily' ? '每天重复' : '每周' + series.repeat.weekdays.map(day => '日一二三四五六'[day]).join('、');
   const emit = (date: string, value: RepeatBase) => {
-    if (value.date >= from && value.date <= to) result.push({ ...value, id: `r:${series.id}:${date}`, createdAt: series.createdAt, seriesId: series.id, repeatLabel: label });
+    if (value.date >= from && value.date <= to) result.push({ ...value, id: `r:${series.id}:${date}`, createdAt: series.createdAt, seriesId: series.id, repeatLabel: label, repeatKind: series.repeat.kind, repeatUntil: series.repeat.until });
   };
   for (let date = from; date <= to; date = dayAfter(date, 1)) {
     if (occurs(series, date) && !Object.prototype.hasOwnProperty.call(series.exceptions, date)) emit(date, { title: series.title, date, startTime: series.startTime, endTime: series.endTime });
@@ -51,7 +51,8 @@ export function changeRepeat(series: RepeatSeries, date: string, scope: unknown,
   if (scope === 'one') { next.exceptions[date] = value; return next; }
   throw new Error('future changes require splitting');
 }
-export function reviseRepeat(series: RepeatSeries, date: string, scope: unknown, value: RepeatBase | null) {
+export function reviseRepeat(series: RepeatSeries, date: string, scope: unknown, value: RepeatBase | null, until?: unknown) {
+  if (until !== undefined && (scope !== 'future' || !validDay(until) || until < date)) throw new Error('结束日期须不早于本次日期，且只能修改本次及以后的重复规则');
   if (scope !== 'future') return { previous: changeRepeat(series, date, scope, value), next: null };
   if (!occurs(series, date) || series.exceptions[date] === null) throw new Error('重复安排不存在');
   if (value && value.date !== date) throw new Error('修改本次及以后时请保持日期不变；只改本次可单独调整日期');
@@ -60,6 +61,8 @@ export function reviseRepeat(series: RepeatSeries, date: string, scope: unknown,
   for (const key of Object.keys(previous.exceptions)) if (key >= date) delete previous.exceptions[key];
   if (!value) return { previous, next: null };
   const next: RepeatSeries = { ...series, ...value, repeat: { ...series.repeat }, exceptions: {} };
+  if (typeof until === 'string') next.repeat.until = until;
   for (const [key, exception] of Object.entries(series.exceptions)) if (key > date) next.exceptions[key] = exception;
+  if (typeof until === 'string') for (const [key, exception] of Object.entries(next.exceptions)) if (key > until || (exception && exception.date > until)) delete next.exceptions[key];
   return { previous, next };
 }

@@ -1,3 +1,4 @@
+<feedback-toast message="{{error || statusError}}" />
 <template name="arrangement-form">
     <view class="card-title">{{formSource === 'manual' ? '记录个人安排' : '确认这条安排'}}</view>
     <text class="field-label">安排名称</text>
@@ -13,8 +14,8 @@
     <checkbox-group wx:if="{{repeatKind === 'weekly'}}" class="repeat-weekdays" bindchange="onRepeatDays">
       <label wx:for="{{weekdays}}" wx:key="value"><checkbox value="{{item.value}}" checked="{{item.checked}}" disabled="{{saving || drafting}}" />{{item.label}}</label>
     </checkbox-group>
-    <view wx:if="{{repeatKind === 'weekly'}}" class="muted spaced">从所选日期开始，每周固定重复，不设结束日期。以后可单独修改或停止后续安排。</view>
-    <view wx:if="{{repeatKind === 'daily'}}"><text class="field-label">重复结束日期</text><picker mode="date" value="{{repeatUntil}}" start="{{date}}" end="2099-12-31" bindchange="onRepeatUntil" disabled="{{saving || drafting}}"><view class="field">{{repeatUntil}}</view></picker></view>
+    <view wx:if="{{repeatKind === 'weekly'}}" class="muted spaced">从所选日期起，在勾选的星期重复；到结束日期停止。</view>
+    <view wx:if="{{repeatKind !== 'once'}}"><text class="field-label">重复结束日期</text><picker mode="date" value="{{repeatUntil}}" start="{{date}}" end="2099-12-31" bindchange="onRepeatUntil" disabled="{{saving || drafting}}"><view class="field">{{repeatUntil}}</view></picker></view>
     <view wx:if="{{repeatKind !== 'once'}}" class="muted spaced">保存前检查开始日起最多 31 天的冲突；更远的安排可在日程日期筛选中查看，圆桌确认会检查实际活动日期。</view>
     <view class="muted spaced">按北京时间（UTC+8）记录。当前请只填写虚构的演示安排。</view>
     <view class="conflict-notice" wx:if="{{conflicts.length}}">
@@ -46,7 +47,7 @@
     <view class="card-title">和小圆说说安排</view>
     <view wx:if="{{statusLoading}}" class="muted spaced">正在读取秘书状态…</view>
     <view wx:if="{{secretaryStatus}}" class="notice">{{secretaryStatus.message}}</view>
-    <view wx:if="{{statusError}}" class="error">{{statusError}}</view>
+
     <button wx:if="{{statusError}}" class="secondary" bindtap="refreshStatus" disabled="{{statusLoading || drafting || saving}}">重新读取秘书状态</button>
     <scroll-view class="conversation" wx:if="{{messages.length}}" scroll-y="true" scroll-into-view="message-{{messages.length - 1}}">
       <view wx:for="{{messages}}" wx:key="id" id="message-{{item.id}}" class="message {{item.role}}"><view class="speaker">{{item.role === 'user' ? '你' : '小圆'}}</view><text selectable="true">{{item.text}}</text></view>
@@ -67,7 +68,7 @@
   <view class="card" wx:if="{{showForm && formSource === 'draft'}}">
     <template is="arrangement-form" data="{{formSource, title, date, startTime, endTime, saving, drafting, conflicts, checking, repeatOptions, repeatIndex, repeatKind, repeatUntil, weekdays}}" />
   </view>
-  <view class="error" wx:if="{{error}}">{{error}}</view>
+
   <view class="section-label">从个人安排，到共同决定</view>
   <view class="steps"><view class="step active"><text>01</text><view>建立个人日程</view></view><view class="step"><text>02</text><view>邀请朋友围桌</view></view><view class="step"><text>03</text><view>秘书协商安排</view></view></view>
   <view class="notice">本机规则支持分步补充安排，不是 AI 对话；对话只保留在当前页面，确认保存的日程才写入本机。后台模式支持单轮模型草稿与圆桌时间协商。</view>

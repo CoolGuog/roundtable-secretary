@@ -20,7 +20,7 @@ Page({
   notify(message: string, isError = true) {
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.setData({ error: isError ? message : '', toastMessage: message });
-    this.toastTimer = setTimeout(() => { this.setData({ toastMessage: '' }); this.toastTimer = null; }, 2000);
+    this.toastTimer = setTimeout(() => { this.setData({ toastMessage: '' }); this.toastTimer = null; }, 1000);
   },
   clearToast() {
     if (this.toastTimer) clearTimeout(this.toastTimer);

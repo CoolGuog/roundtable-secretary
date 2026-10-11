@@ -1,5 +1,15 @@
 {
-  "pages": ["pages/secretary/index", "pages/roundtables/index", "pages/calendar/index", "pages/settings/index", "pages/memories/index", "pages/roundtable/index", "pages/review/index", "pages/meeting-work/index", "pages/week/index"],
+  "pages": [
+    "pages/secretary/index",
+    "pages/roundtables/index",
+    "pages/calendar/index",
+    "pages/settings/index",
+    "pages/memories/index",
+    "pages/roundtable/index",
+    "pages/review/index",
+    "pages/meeting-work/index",
+    "pages/week/index"
+  ],
   "window": {
     "navigationBarTitleText": "圆桌秘书",
     "navigationBarBackgroundColor": "#F5F4EF",
@@ -7,13 +17,31 @@
     "backgroundColor": "#F5F4EF"
   },
   "tabBar": {
-    "color": "#79827D", "selectedColor": "#204D3C", "backgroundColor": "#FFFFFF", "borderStyle": "white",
+    "color": "#79827D",
+    "selectedColor": "#204D3C",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/secretary/index", "text": "秘书" },
-      { "pagePath": "pages/roundtables/index", "text": "圆桌" },
-      { "pagePath": "pages/calendar/index", "text": "日程" },
-      { "pagePath": "pages/settings/index", "text": "我的" }
+      {
+        "pagePath": "pages/secretary/index",
+        "text": "秘书"
+      },
+      {
+        "pagePath": "pages/roundtables/index",
+        "text": "圆桌"
+      },
+      {
+        "pagePath": "pages/calendar/index",
+        "text": "日程"
+      },
+      {
+        "pagePath": "pages/settings/index",
+        "text": "我的"
+      }
     ]
   },
-  "sitemapLocation": "sitemap.json"
+  "sitemapLocation": "sitemap.json",
+  "usingComponents": {
+    "feedback-toast": "/components/feedback-toast/index"
+  }
 }

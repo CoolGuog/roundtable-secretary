@@ -48,3 +48,13 @@ test('本机每日截止、无效规则与时间校验，操作失败不能改�
   await assert.rejects(c.api.deleteArrangement(row.id, 'bad'));
   assert.deepEqual(c.storage.get('roundtable.demo.recurring.v1'), saved);
 });
+
+test('本机旧周重复可补结束日期，单次编辑不能改变整组截止日期', async () => {
+  const c = client(); await c.api.saveArrangement({ ...fields, repeat: { kind: 'weekly', weekdays: [1, 3] } });
+  const rows = await c.api.listArrangements('2027-01-04', '2027-01-18');
+  const anchor = rows.find(row => row.date === '2027-01-11');
+  await assert.rejects(c.api.updateArrangement(anchor.id, { ...fields, date: anchor.date, repeatUntil: '2027-01-13' }, 'one'));
+  await c.api.updateArrangement(anchor.id, { ...fields, date: anchor.date, repeatUntil: '2027-01-13' }, 'future');
+  assert.equal((await c.api.listArrangements('2027-01-04', '2027-01-18')).length, 4);
+  assert.equal((await c.api.listArrangements('2027-02-01', '2027-02-28')).length, 0);
+});

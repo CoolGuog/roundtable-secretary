@@ -34,7 +34,7 @@ Page({
   },
   async refreshStatus() {
     const epoch = ++this._statusEpoch;
-    this.setData({ statusLoading: true, statusError: '', secretaryStatus: null });
+    this.setData({ statusLoading: true, statusError: '', error: '', secretaryStatus: null });
     try { const status = await loadSecretaryStatus(); if (epoch === this._statusEpoch) this.setData({ secretaryStatus: status }); }
     catch (error) { if (epoch === this._statusEpoch) this.setData({ statusError: errorMessage(error) }); }
     finally { if (epoch === this._statusEpoch) this.setData({ statusLoading: false }); }
@@ -50,7 +50,7 @@ Page({
     if (this.data.saving) return;
     const index = Number(event.detail.value); this.invalidateConflicts();
     const day = new Date((this.data.date || today()) + 'T00:00:00Z').getUTCDay();
-    this.setData({ repeatIndex: index, repeatKind: ['once', 'daily', 'weekly'][index], repeatUntil: this.data.date || today(), repeatDays: [day], weekdays: this.data.weekdays.map((item: { value: number; label: string }) => ({ ...item, checked: item.value === day })) });
+    this.setData({ repeatIndex: index, repeatKind: ['once', 'daily', 'weekly'][index], repeatUntil: new Date(Date.parse((this.data.date || today()) + 'T00:00:00Z') + 30 * 86400000).toISOString().slice(0, 10), repeatDays: [day], weekdays: this.data.weekdays.map((item: { value: number; label: string }) => ({ ...item, checked: item.value === day })) });
   },
   onRepeatDays(event: WechatMiniprogram.CheckboxGroupChange) { if (!this.data.saving) { this.invalidateConflicts(); const days = event.detail.value.map(Number); this.setData({ repeatDays: days, weekdays: this.data.weekdays.map((item: { value: number; label: string }) => ({ ...item, checked: days.includes(item.value) })) }); } },
   onRepeatUntil(event: WechatMiniprogram.PickerChange) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ repeatUntil: String(event.detail.value) }); } },
@@ -108,7 +108,7 @@ Page({
     const { title, date, startTime, endTime } = this.data;
     const input: import('../../services/secretary').ArrangementInput = { title: title.trim(), date, startTime, endTime };
     if (this.data.repeatKind !== 'once') {
-      try { input.repeat = repeatRule({ kind: this.data.repeatKind, weekdays: this.data.repeatDays, ...(this.data.repeatKind === 'daily' ? { until: this.data.repeatUntil } : {}) }, date); }
+      try { input.repeat = repeatRule({ kind: this.data.repeatKind, weekdays: this.data.repeatDays, until: this.data.repeatUntil }, date); }
       catch (error) { this.setData({ error: errorMessage(error) }); return; }
     }
     const invalid = validateDraft(input);

@@ -9,10 +9,11 @@ export function saveLocalRepeated(input: RepeatBase & { repeat: RepeatRule }) {
   records.push({ ...input, repeat: repeatRule(input.repeat, input.date), id: uuid(), createdAt: new Date().toISOString(), exceptions: {} });
   wx.setStorageSync(key, records);
 }
-export function changeLocalRepeated(id: string, scope: string, value: RepeatBase | null) {
+export function changeLocalRepeated(id: string, scope: string, value: (RepeatBase & { repeatUntil?: string }) | null) {
   const parsed = occurrenceId(id), records = rows(), index = records.findIndex(row => row.id === parsed.seriesId);
   if (index < 0) throw new Error('重复安排不存在');
-  const changed = reviseRepeat(records[index], parsed.date, scope, value);
+  const { repeatUntil, ...fields } = value || {};
+  const changed = reviseRepeat(records[index], parsed.date, scope, value === null ? null : fields as RepeatBase, repeatUntil);
   if (changed.next && records.length >= 500) throw new Error('重复安排及修改版本已达上限');
   records[index] = changed.previous;
   if (changed.next) records.push({ ...changed.next, id: uuid(), createdAt: new Date().toISOString() });

@@ -20,7 +20,7 @@ function page(result, status = { mode: 'stub', canGenerate: true, message: '本�
   return { instance, saves: () => saves };
 }
 
-test('手动表单独立于草稿，多个星期无结束日期提交；保存后恢复单次模式', async () => {
+test('手动表单独立于草稿，多个星期带结束日期提交；保存后恢复单次模式', async () => {
   const values = [];
   const c = page(null, undefined, { saveArrangement: async value => values.push(value) });
   c.instance.openForm(); assert.equal(c.instance.data.formSource, 'manual');
@@ -30,7 +30,7 @@ test('手动表单独立于草稿，多个星期无结束日期提交；保存�
   await c.instance.save();
   assert.equal(values.length, 1); assert.equal(values[0].repeat.kind, 'weekly');
   assert.deepEqual(Array.from(values[0].repeat.weekdays), [1, 3]);
-  assert.equal('until' in values[0].repeat, false);
+  assert.equal(values[0].repeat.until, '2027-02-03');
   assert.equal(c.instance.data.repeatKind, 'once'); assert.equal(c.instance.data.showForm, false);
 });
 

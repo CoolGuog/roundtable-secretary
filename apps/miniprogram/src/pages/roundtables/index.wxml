@@ -1,3 +1,4 @@
+<feedback-toast message="{{error}}" />
 <view class="page">
   <text class="eyebrow">AROUND THE TABLE</text><view class="title">各有安排，<view>坐下来商量。</view></view>
   <view class="subtitle">发起一次活动，邀请两三位伙伴。</view><view class="muted spaced">{{mode}}</view>
@@ -16,7 +17,7 @@
     <block wx:else><text class="field-label">20 位邀请码</text><input class="field room-code" value="{{code}}" bindinput="onCode" maxlength="20" placeholder="粘贴发起人提供的邀请码" disabled="{{busy}}" /></block>
     <button class="primary submit-room" bindtap="submit" loading="{{busy}}" disabled="{{busy}}">{{form === 'create' ? '创建圆桌' : '确认加入'}}</button><button class="secondary" bindtap="cancel" disabled="{{busy}}">取消</button>
   </view>
-  <view wx:if="{{error}}" class="error">{{error}}</view><button wx:if="{{error && !form}}" class="secondary" bindtap="reload" disabled="{{busy || loading}}">重新加载</button>
+  <button wx:if="{{error && !form}}" class="secondary" bindtap="reload" disabled="{{busy || loading}}">重新加载</button>
   <view class="section-label">我参与的圆桌</view>
   <view wx:if="{{loading}}" class="empty">正在读取…</view><view wx:elif="{{!rooms.length && !error}}" class="empty">还没有圆桌。<view>从一次共同活动开始。</view></view>
   <view wx:for="{{rooms}}" wx:key="id" class="card room-card" data-id="{{item.id}}" bindtap="open">

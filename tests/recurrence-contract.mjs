@@ -9,6 +9,22 @@ const list = async (call, token, from = '2027-01-04', to = '2027-01-18') => {
   assert.equal(response.status, 200); return response.json();
 };
 export async function recurrenceContract(t, call, user) {
+  await t.test('每周截止日期包含当天，截止后不再出现，读出类型与截止信息', async () => {
+    const a = await user('每周截止');
+    const response = await call('/me/arrangements', 'POST', a.token, { ...weekly, repeat: { ...weekly.repeat, until: '2027-01-13' } });
+    assert.equal(response.status, 201);
+    const rows = await list(call, a.token);
+    assert.deepEqual(rows.map(row => row.date), ['2027-01-04', '2027-01-06', '2027-01-11', '2027-01-13']);
+    assert.ok(rows.every(row => row.repeatKind === 'weekly' && row.repeatUntil === '2027-01-13'));
+    assert.deepEqual(await list(call, a.token, '2027-01-14', '2027-01-31'), []);
+    assert.equal((await call('/me/arrangements', 'POST', a.token, { ...weekly, repeat: { ...weekly.repeat, until: '2027-01-03' } })).status, 400);
+    const b = await user('旧规则补截止'); await call('/me/arrangements', 'POST', b.token, weekly);
+    const oldRows = await list(call, b.token), anchor = oldRows.find(row => row.date === '2027-01-11');
+    assert.equal((await call(`/me/arrangements/${anchor.id}`, 'PUT', b.token, { ...base, date: '2027-01-11', scope: 'one', repeatUntil: '2027-01-13' })).status, 400);
+    assert.equal((await call(`/me/arrangements/${anchor.id}`, 'PUT', b.token, { ...base, date: '2027-01-11', scope: 'future', repeatUntil: '2027-01-13' })).status, 200);
+    assert.deepEqual((await list(call, b.token)).map(row => row.date), ['2027-01-04', '2027-01-06', '2027-01-11', '2027-01-13']);
+    assert.deepEqual(await list(call, b.token, '2027-02-01', '2027-02-28'), []);
+  });
   await t.test('每周无结束日期，远期按星期展开、用户隔离，创建并发重试只保存一次', async () => {
     const a = await user('重复甲'), b = await user('重复乙'), key = randomUUID();
     const responses = await Promise.all(Array.from({ length: 3 }, () => call('/me/arrangements', 'POST', a.token, weekly, { 'Idempotency-Key': key })));

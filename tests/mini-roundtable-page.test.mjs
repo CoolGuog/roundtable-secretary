@@ -90,11 +90,11 @@ test('当天默认选未来时段；当天窗口已结束则选下一天，无�
   assert.equal(pastDate.manualStart, '');
 });
 
-test('浮层两秒消失；连续提示取消旧计时器；页面隐藏时清理', () => {
+test('浮层一秒消失；连续提示取消旧计时器；页面隐藏时清理', () => {
   const { page: view, timers } = page();
   view.notify('请选择更晚的时间');
   assert.equal(view.data.toastMessage, '请选择更晚的时间');
-  assert.equal([...timers.values()][0].delay, 2000);
+  assert.equal([...timers.values()][0].delay, 1000);
   view.notify('已更新提示'); assert.equal(timers.size, 1);
   [...timers.values()][0].callback(); assert.equal(view.data.toastMessage, '');
   timers.clear(); view.notify('新提示'); view.onHide();
