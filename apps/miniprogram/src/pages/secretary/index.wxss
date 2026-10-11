@@ -11,3 +11,12 @@
 .step text { display: block; font-size: 34rpx; margin-bottom: 18rpx; }
 .step.active { background: #e3ebdc; color: #36543f; }
 .area { height: 132rpx; line-height: 40rpx; padding-top: 16rpx; }
+.conversation { margin: 24rpx 0; height: 440rpx; }
+.message { padding: 20rpx 24rpx; margin-bottom: 16rpx; border-radius: 18rpx; font-size: 27rpx; line-height: 1.7; background: #f1f3eb; word-break: break-all; }
+.message.user { margin-left: 40rpx; background: #e3ebdc; }
+.message.secretary { margin-right: 24rpx; }
+.speaker { font-size: 22rpx; color: #667a67; margin-bottom: 6rpx; }
+.conflict-notice { margin-top: 24rpx; padding: 24rpx; border-radius: 18rpx; background: #fff1d9; color: #775322; font-size: 26rpx; line-height: 1.7; word-break: break-all; }
+.conflict-notice .card-title { color: #775322; }
+.conflict-item { padding: 18rpx 0; border-bottom: 1rpx solid #e8d4b2; }
+.conflict-item text { font-size: 24rpx; }

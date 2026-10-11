@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { PersonalMemory } from './memory';
 import type { NegotiationStore } from './negotiation';
 import type { RoomStore } from './rooms';
+import type { ReviewStore } from './reviews';
 
 export type ArrangementInput = { title: string; date: string; startTime: string; endTime: string };
 export type Arrangement = ArrangementInput & { id: string; createdAt: string };
@@ -9,15 +10,17 @@ export type User = { id: string; name: string; secretaryName: string };
 export const STORE = Symbol('personal-store');
 export interface PersonalStore {
   readonly rooms: RoomStore;
+  readonly reviews: ReviewStore;
   /** 共同可用时间与方案确认（第 15、16 步） */
   readonly negotiation: NegotiationStore;
   readonly persistence: 'memory' | 'postgres';
+  checkReady(): void | Promise<void>;
   createSession(value: unknown): unknown;
   authenticate(token: string): string | Promise<string>;
   revokeSession(token: string): void | Promise<void>;
   profile(userId: string): User | Promise<User>;
   list(userId: string): Arrangement[] | Promise<Arrangement[]>;
-  create(userId: string, value: unknown): Arrangement | Promise<Arrangement>;
+  create(userId: string, value: unknown, requestId?: unknown): Arrangement | Promise<Arrangement>;
   update(userId: string, id: string, value: unknown): Arrangement | Promise<Arrangement>;
   remove(userId: string, id: string): void | Promise<void>;
   listMemories(userId: string): PersonalMemory[] | Promise<PersonalMemory[]>;

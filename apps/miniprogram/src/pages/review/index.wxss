@@ -1,0 +1,7 @@
+.review-text { white-space: pre-wrap; word-break: break-all; line-height: 1.7; }
+.review-row { padding: 24rpx 0; border-bottom: 1rpx solid #e1e5dc; }
+.review-area { min-height: 140rpx; height: 180rpx; padding-top: 16rpx; line-height: 1.6; }
+.review-small { height: 110rpx; min-height: 110rpx; }
+.review-total { font-size: 32rpx; font-weight: 600; color: #204d3c; margin: 24rpx 0; }
+.review-name { font-weight: 600; word-break: break-all; }
+.review-history { border-top: 1rpx solid #d7dfd1; margin-top: 28rpx; padding-top: 20rpx; }

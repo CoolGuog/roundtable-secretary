@@ -204,9 +204,9 @@ export async function negotiationContract(t, call, user) {
     assert.equal((await call(`/roundtables/${id}/proposal`, 'GET', outsider.token)).status, 404);
     assert.equal((await call(`/roundtables/${id}/proposal`, 'GET', a.token)).status, 204);
     assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, {})).status, 400);
-    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: '2026-10-01', startTime: '9:00', endTime: '10:00' })).status, 400);
-    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: '2026-10-01', startTime: '10:00', endTime: '10:00' })).status, 400);
-    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: '2026-10-01', startTime: '09:00', endTime: '10:00', title: 'x' })).status, 400);
+    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: DAY, startTime: '9:00', endTime: '10:00' })).status, 400);
+    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: DAY, startTime: '10:00', endTime: '10:00' })).status, 400);
+    assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', a.token, { date: DAY, startTime: '09:00', endTime: '10:00', title: 'x' })).status, 400);
     assert.equal((await call(`/roundtables/${id}/proposals`, 'POST', outsider.token, (await availability(call, a.token, id)).slots[0])).status, 404);
     const slot = (await availability(call, a.token, id)).slots[0];
     const proposal = await (await call(`/roundtables/${id}/proposals`, 'POST', a.token, slot)).json();

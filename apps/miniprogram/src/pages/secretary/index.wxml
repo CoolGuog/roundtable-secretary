@@ -11,13 +11,23 @@
     <view class="saved row" bindtap="openCalendar"><text>已保存 {{count}} 条安排</text><text>查看日程 →</text></view>
   </view>
   <view class="card">
-    <view class="card-title">用一句话说说</view>
-    <textarea class="field area" value="{{utterance}}" maxlength="200" disabled="{{drafting || saving}}" placeholder="例如：明天下午三点到四点和导师开会" bindinput="onUtterance" />
-    <button class="primary generate-draft" loading="{{drafting}}" disabled="{{drafting || saving}}" bindtap="generate">让秘书整理成草稿</button>
+    <view class="card-title">和小圆说说安排</view>
+    <view wx:if="{{statusLoading}}" class="muted spaced">正在读取秘书状态…</view>
+    <view wx:if="{{secretaryStatus}}" class="notice">{{secretaryStatus.message}}</view>
+    <view wx:if="{{statusError}}" class="error">{{statusError}}</view>
+    <button wx:if="{{statusError}}" class="secondary" bindtap="refreshStatus" disabled="{{statusLoading || drafting || saving}}">重新读取秘书状态</button>
+    <scroll-view class="conversation" wx:if="{{messages.length}}" scroll-y="true" scroll-into-view="message-{{messages.length - 1}}">
+      <view wx:for="{{messages}}" wx:key="id" id="message-{{item.id}}" class="message {{item.role}}"><view class="speaker">{{item.role === 'user' ? '你' : '小圆'}}</view><text selectable="true">{{item.text}}</text></view>
+    </scroll-view>
+    <textarea class="field area" value="{{utterance}}" maxlength="200" disabled="{{drafting || saving}}" placeholder="{{draft && secretaryStatus.mode === 'local' ? '补充信息，例如：明天 / 下午三点 / 持续一小时' : '例如：明天下午三点到四点和导师开会'}}" bindinput="onUtterance" />
+    <button wx:if="{{draft && secretaryStatus.mode === 'local'}}" class="primary continue-draft" loading="{{drafting}}" disabled="{{drafting || saving || statusLoading || turns >= 6}}" bindtap="sendReply">补充这条安排</button>
+    <button wx:else class="primary generate-draft" loading="{{drafting}}" disabled="{{drafting || saving || statusLoading || !secretaryStatus || !secretaryStatus.canGenerate}}" bindtap="generate">让秘书整理成草稿</button>
+    <view wx:if="{{turns >= 6}}" class="muted spaced">可直接修改下方表单，或开始新安排。</view>
+    <button wx:if="{{messages.length || drafting}}" class="secondary new-draft" disabled="{{saving}}" bindtap="resetDraft">开始新安排</button>
     <view class="muted spaced">只生成待确认的草稿，确认后才会写入你的日程。</view>
   </view>
   <view class="card" wx:if="{{draft}}">
-    <view class="card-title">草稿 · {{draft.model}} · {{draft.confidence}}</view>
+    <view class="card-title">{{draft.status === 'READY' ? '待确认草稿' : '还需补充信息'}}</view>
     <view class="muted" wx:for="{{draft.reasons}}" wx:key="*this">· {{item}}</view>
     <view class="muted spaced" wx:if="{{draftMemoryNote}}">{{draftMemoryNote}}</view>
     <view class="muted spaced">{{draft.message}}</view>
@@ -25,19 +35,26 @@
   <view class="card" wx:if="{{showForm}}">
     <view class="card-title">确认这条安排</view>
     <text class="field-label">安排名称</text>
-    <input class="field" value="{{title}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onTitle" />
+    <input class="field draft-title" disabled="{{saving || drafting}}" value="{{title}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onTitle" />
     <text class="field-label">日期</text>
-    <picker mode="date" value="{{date}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">{{date || '请选择日期'}}</view></picker>
+    <picker class="draft-date" disabled="{{saving || drafting}}" mode="date" value="{{date}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">{{date || '请选择日期'}}</view></picker>
     <view class="two-col">
-      <view><text class="field-label">开始</text><picker mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime || '请选择开始时间'}}</view></picker></view>
-      <view><text class="field-label">结束</text><picker mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime || '请选择结束时间'}}</view></picker></view>
+      <view><text class="field-label">开始</text><picker class="draft-start" disabled="{{saving || drafting}}" mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime || '请选择开始时间'}}</view></picker></view>
+      <view><text class="field-label">结束</text><picker class="draft-end" disabled="{{saving || drafting}}" mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime || '请选择结束时间'}}</view></picker></view>
     </view>
     <view class="muted spaced">按北京时间（UTC+8）记录。当前请只填写虚构的演示安排。</view>
-    <button class="primary save-draft" loading="{{saving}}" disabled="{{saving || drafting}}" bindtap="save">确认保存</button>
+    <view class="conflict-notice" wx:if="{{conflicts.length}}">
+      <view class="card-title">与 {{conflicts.length}} 条安排时间重叠</view>
+      <view class="conflict-item" wx:for="{{conflicts}}" wx:key="id"><view>{{item.title}}</view><text>{{item.date}} · {{item.startTime}}—{{item.endTime}}</text></view>
+      <view class="spaced">尚未保存。可修改上方时间，或确认仍要保留这条安排。</view>
+    </view>
+    <view class="muted spaced" wx:if="{{checking}}">正在检查你的日程…</view>
+    <button wx:if="{{conflicts.length}}" class="primary confirm-overlap" loading="{{saving || checking}}" disabled="{{saving || drafting || checking}}" bindtap="confirmOverlap">仍然保存这条安排</button>
+    <button wx:else class="primary save-draft" loading="{{saving || checking}}" disabled="{{saving || drafting || checking}}" bindtap="save">确认保存</button>
     <button class="secondary" disabled="{{saving}}" bindtap="closeForm">稍后再填</button>
   </view>
   <view class="error" wx:if="{{error}}">{{error}}</view>
   <view class="section-label">从个人安排，到共同决定</view>
   <view class="steps"><view class="step active"><text>01</text><view>建立个人日程</view></view><view class="step"><text>02</text><view>邀请朋友围桌</view></view><view class="step"><text>03</text><view>秘书协商安排</view></view></view>
-  <view class="notice">后台模式已支持日程草稿与圆桌时间协商。本机模式只保存本机数据；真实微信账号和真机体验仍待验证。</view>
+  <view class="notice">本机规则支持分步补充安排，不是 AI 对话；对话只保留在当前页面，确认保存的日程才写入本机。后台模式支持单轮模型草稿与圆桌时间协商。</view>
 </view>

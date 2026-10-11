@@ -7,6 +7,7 @@ import { roomContract, sampleRoom } from './room-contract.mjs';
 import { negotiationContract } from './negotiation-contract.mjs';
 import { secretaryContract } from './secretary-contract.mjs';
 import { negotiationRecoveryContract } from './negotiation-recovery-contract.mjs';
+import { arrangementRetryContract } from './arrangement-retry-contract.mjs';
 
 let app, base;
 before(async () => {
@@ -16,9 +17,9 @@ before(async () => {
 });
 after(async () => { await app?.close(); });
 
-async function call(path, method = 'GET', token, body) {
+async function call(path, method = 'GET', token, body, headers = {}) {
   return fetch(base + path, { method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
@@ -30,6 +31,7 @@ async function user(name) {
 const sample = { title: '演示课程', date: '2026-09-23', startTime: '19:00', endTime: '20:00' };
 
 test('内存演示记忆接口', t => memoryContract(t, call, user));
+test('内存保存请求重试', t => arrangementRetryContract(t, call, user));
 test('内存演示圆桌接口', t => roomContract(t, call, user));
 test('内存演示协商与确认接口', t => negotiationContract(t, call, user));
 test('内存演示方案恢复与原子写入', t => negotiationRecoveryContract(t, call, user));
@@ -62,7 +64,7 @@ test('内存演示记忆达到配额后仍可编辑与删除', async () => {
 test('健康状态明确为内存演示且不接收模型密钥', async () => {
   const response = await call('/health');
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await response.json(), { status: 'ok', mode: 'local-demo', acceptsModelKeys: false, persistence: 'memory', secretary: 'stub' });
+  assert.deepEqual(await response.json(), { status: 'ok', mode: 'local-demo', acceptsModelKeys: false, persistence: 'memory', secretary: 'stub', deployment: 'development' });
 });
 test('匿名和伪造凭证不能读取个人数据', async () => {
   assert.equal((await call('/me/arrangements')).status, 401);

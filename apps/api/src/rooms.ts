@@ -65,6 +65,11 @@ export class MemoryRooms implements RoomStore {
   }
   list(userId: string) { return [...this.rooms.values()].filter(room => room.members.some(member => member.userId === userId)).reverse().map(room => this.dto(room, userId)); }
   get(userId: string, id: string) { return this.dto(this.accessible(userId, id), userId); }
+  reviewContext(userId: string, id: string) {
+    const room = this.accessible(userId, id);
+    return { ownerId: room.ownerId, dateFrom: room.dateFrom, dateTo: room.dateTo,
+      participants: room.members.map(p => ({ memberId: p.id, userId: p.userId, name: this.name(p.userId) })) };
+  }
   /** 协商模块内部使用：带成员 userId 的房间视图，不经过 HTTP 输出 */
   core(userId: string, id: string): NegotiationRoom {
     const room = this.accessible(userId, id);

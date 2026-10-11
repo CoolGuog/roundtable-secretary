@@ -1,0 +1,62 @@
+<view class="page">
+  <text class="eyebrow">MEETING WORKSPACE</text><view class="title">把下一步，做完。</view>
+  <view class="subtitle">{{room.title || '会前准备、会议记录和会后行动'}} </view>
+  <view class="notice">本机工作台：负责人和验收均为你手动记录，不代表伙伴收到任务或已确认。当前不跨设备同步，也不发送通知。</view>
+  <view wx:if="{{!local}}" class="empty">后台任务同步尚未接入。请在本机演示模式使用工作台。</view>
+  <block wx:if="{{local}}">
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <button class="secondary refresh-work" bindtap="reload" disabled="{{busy || loading}}">{{loading ? '读取中…' : '刷新工作台'}}</button>
+    <view class="work-tabs"><button wx:for="{{tabs}}" wx:key="id" class="work-tab {{tab === item.id ? 'active' : ''}}" data-tab="{{item.id}}" bindtap="onTab" disabled="{{busy || editor || actionId || importKind}}">{{item.name}}</button></view>
+    <block wx:if="{{work}}">
+      <view wx:if="{{!editor && !actionId && !importKind}}">
+        <view wx:if="{{tab === 'tasks'}}">
+          <view class="work-summary">已完成 {{counts.done}} / {{counts.tasks}} · 逾期未完成 {{counts.overdue}}<view class="muted">截止日期按北京时间，当天结束后仍未完成才计为逾期。</view></view>
+          <button class="primary new-task" data-kind="task" bindtap="edit" disabled="{{busy || loading || !fresh}}">＋ 新增任务</button>
+          <view class="work-actions"><button class="secondary import-review" data-kind="review" bindtap="previewImport" disabled="{{busy || loading || !fresh}}">从复盘补救转入</button><button class="secondary import-minutes" data-kind="minutes" bindtap="previewImport" disabled="{{busy || loading || !fresh}}">从纪要行动转入</button></view>
+        </view>
+        <view wx:if="{{tab === 'prep'}}">
+          <view class="work-summary">准备就绪 {{counts.ready}} / {{counts.prep}}</view>
+          <button class="primary new-prep" data-kind="prep" bindtap="edit" disabled="{{busy || loading || !fresh}}">＋ 准备事项</button>
+          <button class="secondary add-template" bindtap="addTemplate" disabled="{{busy || loading || !fresh}}">加入通知／场地／材料／设备清单</button>
+        </view>
+        <view wx:if="{{tab === 'minutes'}}"><button class="primary edit-minutes" data-kind="minutes" bindtap="edit" disabled="{{busy || loading || !fresh}}">{{work.minutes.length ? '修订会议纪要' : '记录会议纪要'}}</button><button wx:if="{{work.minutes.length > 1}}" class="secondary minutes-history" bindtap="toggleHistory">{{showHistory ? '只看最新版' : '查看纪要历史'}}</button></view>
+      </view>
+      <view class="card" wx:if="{{editor}}">
+        <view class="card-title">{{editor === 'task' ? '任务与截止日期' : editor === 'prep' ? '会前准备事项' : '会议纪要与决议记录'}}</view>
+        <view wx:if="{{baseVersion !== work.version}}" class="notice">工作台有新记录。请取消当前编辑，核对后重新填写；旧表单不能覆盖新版本。</view>
+        <block wx:if="{{editor !== 'minutes'}}">
+          <text class="field-label">名称</text><input class="field work-title" value="{{title}}" maxlength="60" data-field="title" bindinput="onField" disabled="{{busy}}" />
+          <text class="field-label">负责人（本机记录）</text><input class="field work-owner" value="{{owner}}" maxlength="40" data-field="owner" bindinput="onField" disabled="{{busy}}" />
+          <text class="field-label">截止日期</text><picker class="work-due" mode="date" value="{{dueDate}}" start="2020-01-01" end="2099-12-31" data-field="dueDate" bindchange="onField" disabled="{{busy}}"><view class="field">{{dueDate}}</view></picker>
+          <text class="field-label">说明／备注</text><textarea class="field work-area work-details" value="{{details}}" maxlength="{{editor === 'task' ? 500 : 300}}" data-field="details" bindinput="onField" disabled="{{busy}}" />
+          <view wx:if="{{editor === 'prep' && editId}}" class="muted spaced">修改事项后将重新标为未就绪，请重新核对。</view>
+        </block>
+        <block wx:else>
+          <text class="field-label">会议日期</text><picker class="minutes-date" mode="date" value="{{meetingDate}}" start="{{room.dateFrom}}" end="{{room.dateTo}}" data-field="meetingDate" bindchange="onField" disabled="{{busy}}"><view class="field">{{meetingDate}}</view></picker>
+          <text class="field-label">讨论纪要</text><textarea class="field work-area minutes-summary" value="{{summary}}" maxlength="1500" data-field="summary" bindinput="onField" disabled="{{busy}}" placeholder="记录讨论内容与结论" />
+          <text class="field-label">决议记录</text><textarea class="field work-area minutes-decisions" value="{{decisions}}" maxlength="1000" data-field="decisions" bindinput="onField" disabled="{{busy}}" placeholder="手动记录，不代表系统已取得全员确认" />
+          <text class="field-label">后续行动（每行一条，最多 10 条）</text><textarea class="field work-area minutes-next" value="{{nextSteps}}" maxlength="1000" data-field="nextSteps" bindinput="onField" disabled="{{busy}}" placeholder="保存后可到补救任务页预览并转成任务" />
+        </block>
+        <button class="primary save-work" bindtap="submit" loading="{{busy}}" disabled="{{busy || loading || !fresh || baseVersion !== work.version}}">保存本机记录</button>
+        <button class="secondary cancel-work" bindtap="cancel" disabled="{{busy}}">取消编辑</button>
+      </view>
+      <view class="card" wx:if="{{actionId}}"><view class="card-title">{{actionLabel}}</view><view class="muted spaced">{{action === 'accept' ? '请写明检查结果。这是本机验收记录，不会替伙伴确认。' : action === 'start' ? '可补充本次执行计划。' : '请填写实际完成内容或需要重新打开的原因。'}}</view><textarea class="field work-area action-note" value="{{actionNote}}" maxlength="300" data-field="actionNote" bindinput="onField" disabled="{{busy}}" /><button class="primary save-action" bindtap="submitAction" disabled="{{busy || loading || !fresh || baseVersion !== work.version}}">确认记录</button><button class="secondary cancel-action" bindtap="cancel" disabled="{{busy}}">取消</button></view>
+      <view class="card" wx:if="{{importKind}}"><view class="card-title">预览待转入任务 · {{candidates.length}} 条</view><view class="record" wx:for="{{candidates}}" wx:key="source"><view class="work-text">{{item.details}}</view><view class="muted">{{item.owner}} · {{item.sourceLabel}}</view></view><text class="field-label">这批任务的截止日期</text><picker class="import-due" mode="date" value="{{dueDate}}" start="2020-01-01" end="2099-12-31" data-field="dueDate" bindchange="onField" disabled="{{busy}}"><view class="field">{{dueDate}}</view></picker><view class="muted spaced">同版事项只转入一次。转入后可修改负责人和截止日期，不会自动标为完成。</view><button class="primary confirm-import" bindtap="submitImport" disabled="{{busy || loading || !fresh || baseVersion !== work.version}}">确认转入以上任务</button><button class="secondary" bindtap="cancel" disabled="{{busy}}">取消</button></view>
+      <block wx:if="{{tab === 'tasks'}}">
+        <view class="empty" wx:if="{{!tasks.length && !editor}}">还没有任务，可手动新增或从记录转入。</view>
+        <view class="card" wx:for="{{tasks}}" wx:key="id"><view class="row"><view class="card-title work-text">{{item.title}}</view><text class="badge">{{item.stateLabel}}</text></view><view class="muted spaced">负责人 {{item.owner}} · 截止 {{item.dueDate}}</view><view class="overdue" wx:if="{{item.overdue}}">已逾期，尚未验收完成</view><view class="work-text spaced">{{item.details}}</view><view class="muted spaced">来源：{{item.sourceLabel}}</view>
+          <view class="work-actions" wx:if="{{!editor && !actionId && !importKind}}">
+            <button wx:if="{{item.state === 'TODO' || item.state === 'DOING'}}" class="secondary edit-task" data-id="{{item.id}}" data-kind="task" bindtap="edit" disabled="{{busy || loading || !fresh}}">编辑</button>
+            <button wx:if="{{item.state === 'TODO'}}" class="secondary start-task" data-id="{{item.id}}" data-action="start" bindtap="taskAction" disabled="{{busy || loading || !fresh}}">开始</button>
+            <button wx:if="{{item.state === 'TODO' || item.state === 'DOING'}}" class="secondary submit-task" data-id="{{item.id}}" data-action="submit" bindtap="taskAction" disabled="{{busy || loading || !fresh}}">提交完成说明</button>
+            <button wx:if="{{item.state === 'REVIEW'}}" class="secondary accept-task" data-id="{{item.id}}" data-action="accept" bindtap="taskAction" disabled="{{busy || loading || !fresh}}">记录验收</button>
+            <button wx:if="{{item.state === 'REVIEW' || item.state === 'DONE'}}" class="secondary reopen-task" data-id="{{item.id}}" data-action="reopen" bindtap="taskAction" disabled="{{busy || loading || !fresh}}">重新打开</button>
+          </view>
+          <view class="work-history muted" wx:for="{{item.history}}" wx:for-item="event" wx:key="key"><view>{{event.time}} · {{event.label}}</view><view class="work-text">{{event.note}}</view></view>
+        </view>
+      </block>
+      <block wx:if="{{tab === 'prep'}}"><view class="empty" wx:if="{{!preparation.length && !editor}}">可使用默认清单，也可自定义准备事项。</view><view class="card" wx:for="{{preparation}}" wx:key="id"><view class="row"><view class="card-title work-text">{{item.title}}</view><text class="badge">{{item.done ? '已就绪' : '待准备'}}</text></view><view class="muted spaced">{{item.owner}} · 截止 {{item.dueDate}}</view><view class="work-text spaced">{{item.note}}</view><view wx:if="{{item.overdue}}" class="overdue">已过截止日期，尚未准备好</view><view class="work-actions" wx:if="{{!editor}}"><button class="secondary toggle-prep" data-id="{{item.id}}" bindtap="togglePrep" disabled="{{busy || loading || !fresh}}">{{item.done ? '重新标为待准备' : '记录已准备好'}}</button><button class="secondary edit-prep" data-id="{{item.id}}" data-kind="prep" bindtap="edit" disabled="{{busy || loading || !fresh}}">编辑</button></view></view></block>
+      <block wx:if="{{tab === 'minutes'}}"><view class="empty" wx:if="{{!minutes.length && !editor}}">记录讨论、决议与接下来的行动。</view><view class="card" wx:for="{{minutes}}" wx:key="revision"><view class="card-title">第 {{item.revision}} 版 · {{item.date}}</view><text class="field-label">讨论纪要</text><view class="work-text">{{item.summary}}</view><text class="field-label">决议（手动记录）</text><view class="work-text">{{item.decisions || '未填写'}}</view><text class="field-label">后续行动</text><view class="work-text">{{item.nextSteps || '未填写'}}</view></view></block>
+    </block>
+  </block>
+</view>

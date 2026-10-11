@@ -2,9 +2,10 @@ import 'reflect-metadata';
 import {
   BadRequestException, Body, CanActivate, Controller, Delete, ExecutionContext,
   Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Req, Res,
-  UnauthorizedException, UseGuards,
+  ServiceUnavailableException, UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import {
   Arrangement, User, PersonalStore, STORE,
@@ -14,19 +15,27 @@ import { PostgresStore } from './postgres-store';
 import { PersonalMemory, validateMemory } from './memory';
 import { MemoryNegotiation } from './negotiation';
 import { MemoryRooms } from './rooms';
+import { MemoryReviews } from './reviews';
 import {
-  SECRETARY, SecretaryModel, SecretaryMode, SecretaryService, HttpModel, validateSecretaryText,
+  SECRETARY, SecretaryModel, SecretaryMode, SecretaryService, validateSecretaryText,
 } from './secretary';
 import { AUTH, AuthMode, AuthRuntime, createWechatExchange, validateLoginCode, WechatExchange } from './wechat-login';
+import { configuredHttpModel, SECRETARY_ACCESS, SecretaryAccess } from './secretary-access';
+import { arrangementFingerprint, assertReplay, requestKey } from './arrangement-request';
+import { READINESS, Readiness } from './readiness';
+import { assertProductionConfig } from './production';
+import { LOGIN_ACCESS, LoginAccess } from './login-access';
 
 type AuthRequest = {
-  headers: { authorization?: string }; userId?: string;
+  headers: { authorization?: string; 'idempotency-key'?: string }; userId?: string;
 };
 
 @Injectable()
 class DemoStore implements PersonalStore {
   readonly persistence = 'memory' as const;
+  checkReady() {}
   readonly rooms = new MemoryRooms(id => this.users.get(id)!.name);
+  readonly reviews = new MemoryReviews((userId, roomId) => this.rooms.reviewContext(userId, roomId));
   readonly negotiation = new MemoryNegotiation({
     room: (userId, roomId) => this.rooms.core(userId, roomId),
     arrangements: userId => [...this.arrangements.get(userId)!.values()],
@@ -49,6 +58,7 @@ class DemoStore implements PersonalStore {
   private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
   private readonly arrangements = new Map<string, Map<string, Arrangement & { sourceRoomId?: string }>>();
   private readonly memories = new Map<string, Map<string, PersonalMemory>>();
+  private readonly createRequests = new Map<string, { fingerprint: string; arrangementId: string }>();
   private hash(token: string) { return createHash('sha256').update(token).digest('hex'); }
 
   createSession(value: unknown) {
@@ -76,12 +86,20 @@ class DemoStore implements PersonalStore {
       .map(({ sourceRoomId: _source, ...item }) => item)
       .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
   }
-  create(userId: string, value: unknown) {
+  create(userId: string, value: unknown, requestId?: unknown) {
     const input = validateArrangement(value);
+    const key = requestKey(requestId), fingerprint = arrangementFingerprint(input);
+    const previous = key ? this.createRequests.get(`${userId}:${key}`) : undefined;
     const records = this.arrangements.get(userId)!;
+    if (previous) {
+      const existing = records.get(previous.arrangementId);
+      assertReplay(previous.fingerprint, fingerprint, Boolean(existing));
+      return existing!;
+    }
     if (records.size >= 100) throw new BadRequestException('演示最多保存 100 条安排');
     const item: Arrangement = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
     records.set(item.id, item);
+    if (key) this.createRequests.set(`${userId}:${key}`, { fingerprint, arrangementId: item.id });
     return item;
   }
   update(userId: string, id: string, value: unknown) {
@@ -144,35 +162,43 @@ class PublicController {
     @Inject(STORE) private readonly store: PersonalStore,
     @Inject(AUTH) private readonly auth: AuthRuntime,
     @Inject(SECRETARY) private readonly secretary: SecretaryService,
+    @Inject(READINESS) private readonly readiness: Readiness,
+    @Inject(LOGIN_ACCESS) private readonly loginAccess: LoginAccess,
   ) {}
   @Get('health') health() {
     return {
       status: 'ok', mode: this.auth.mode === 'wechat' ? 'local-wechat' : 'local-demo',
       // 接口永不接收模型密钥，密钥只从本机 .env 读取
       acceptsModelKeys: false, persistence: this.store.persistence, secretary: this.secretary.mode,
+      deployment: this.auth.production ? 'production' : 'development',
     };
   }
   @Post('dev/sessions') session(@Body() body: unknown) {
     if (this.auth.mode !== 'demo') throw new NotFoundException();
     return this.store.createSession(body);
   }
+  @Get('ready') async ready() {
+    if (!await this.readiness.check()) throw new ServiceUnavailableException('后台存储暂未就绪');
+    return { status: 'ready', persistence: this.store.persistence };
+  }
   @Post('auth/wechat') login(@Body() body: unknown) {
     if (!this.auth.login) throw new NotFoundException();
-    return this.auth.login(validateLoginCode(body));
+    return this.loginAccess.run(() => this.auth.login!(validateLoginCode(body)));
   }
 }
 
 @Controller('me')
 @UseGuards(SessionGuard)
 class PersonalController {
-  constructor(@Inject(STORE) private readonly store: PersonalStore, @Inject(SECRETARY) private readonly secretary: SecretaryService) {}
+  constructor(@Inject(STORE) private readonly store: PersonalStore, @Inject(SECRETARY) private readonly secretary: SecretaryService,
+    @Inject(SECRETARY_ACCESS) private readonly secretaryAccess: SecretaryAccess) {}
   @Get() profile(@Req() request: AuthRequest) { return this.store.profile(request.userId!); }
   @Delete('session')
   @HttpCode(204)
   logout(@Req() request: AuthRequest) { return this.store.revokeSession(request.headers.authorization!.slice(7)); }
   @Get('arrangements') list(@Req() request: AuthRequest) { return this.store.list(request.userId!); }
   @Post('arrangements') create(@Req() request: AuthRequest, @Body() body: unknown) {
-    return this.store.create(request.userId!, body);
+    return this.store.create(request.userId!, body, request.headers['idempotency-key']);
   }
   // 用 PUT 而不是 PATCH：微信小程序的 wx.request 不支持 PATCH 方法。
   // 语义为"替换这条安排"，也接受只传部分字段——未传的字段保持原值。
@@ -194,10 +220,14 @@ class PersonalController {
   @HttpCode(204)
   removeMemory(@Req() request: AuthRequest, @Param('id') id: string) { return this.store.removeMemory(request.userId!, id); }
   // 第 13 步：把一句话整理成「待确认」草稿。这里只返回草稿，写入日程要走上面的保存接口。
+  @Get('secretary/status') secretaryStatus() { return this.secretaryAccess.status(); }
   @Post('secretary/draft')
   async draft(@Req() request: AuthRequest, @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'text')) {
+      throw new BadRequestException('草稿请求只接受 text 字段');
+    }
     const text = validateSecretaryText((body as { text?: unknown } | null)?.text);
-    return this.secretary.draft(text, await this.store.listMemories(request.userId!));
+    return this.secretaryAccess.run(request.userId!, async () => this.secretary.draft(text, await this.store.listMemories(request.userId!)));
   }
 }
 
@@ -205,6 +235,9 @@ class PersonalController {
 @UseGuards(SessionGuard)
 class RoundtableController {
   constructor(@Inject(STORE) private readonly store: PersonalStore) {}
+  @Get(':id/review') review(@Req() req: AuthRequest, @Param('id') id: string) { return this.store.reviews.get(req.userId!, id); }
+  @Put(':id/review') editReview(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.store.reviews.edit(req.userId!, id, body); }
+  @Put(':id/review/vote') voteReview(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.store.reviews.vote(req.userId!, id, body); }
   @Get() list(@Req() req: AuthRequest) { return this.store.rooms.list(req.userId!); }
   @Post() create(@Req() req: AuthRequest, @Body() body: unknown) { return this.store.rooms.create(req.userId!, body); }
   @Post('join') join(@Req() req: AuthRequest, @Body() body: unknown) { return this.store.rooms.join(req.userId!, body); }
@@ -246,9 +279,7 @@ export async function createApp(options: {
   wechatAppId?: string; wechatSecret?: string; wechatExchange?: WechatExchange;
   secretary?: { mode?: SecretaryMode; model?: SecretaryModel | null };
 } = {}) {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('此阶段仅支持本机演示，禁止作为生产后台启动');
-  }
+  const production = process.env.NODE_ENV === 'production';
   const storage = options.storage ?? process.env.STORAGE_MODE ?? 'memory';
   if (storage !== 'memory' && storage !== 'postgres') throw new Error('STORAGE_MODE 仅支持 memory 或 postgres');
   const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
@@ -260,31 +291,38 @@ export async function createApp(options: {
     throw new Error('微信登录需要 postgres 模式、有效 WECHAT_APP_ID 和后台 WECHAT_APP_SECRET');
   }
   if (storage === 'postgres' && !databaseUrl) throw new Error('postgres 模式必须配置 DATABASE_URL');
+  // 模型密钥只从本机 .env 读取：接口不接受密钥，也不把密钥写入数据库或日志。
+  const secretaryMode = (options.secretary?.mode ?? process.env.SECRETARY_MODE ?? 'off') as SecretaryMode;
+  if (!['off', 'stub', 'http'].includes(secretaryMode)) throw new Error('SECRETARY_MODE 仅支持 off、stub 或 http');
+  if (production) assertProductionConfig({ storage, authMode, databaseUrl, appId, secret,
+    origin: process.env.PUBLIC_API_ORIGIN, host: process.env.HOST, secretaryMode,
+    hasMock: Boolean(options.wechatExchange || options.secretary?.model),
+  });
+  let secretaryModel = options.secretary?.model ?? null;
+  if (!secretaryModel && secretaryMode === 'http') {
+    secretaryModel = configuredHttpModel(process.env);
+  }
+  const secretary = new SecretaryService(secretaryMode, secretaryModel ?? undefined);
+  const secretaryAccess = new SecretaryAccess(secretary);
+  // 配置校验全部通过后再连接数据库，避免无效模型配置留下数据库连接。
   const store = storage === 'postgres' ? await PostgresStore.connect(databaseUrl!, authMode === 'wechat' ? appId : undefined) : new DemoStore();
-  const auth: AuthRuntime = { mode: authMode };
+  const auth: AuthRuntime = { mode: authMode, production };
   if (authMode === 'wechat' && store instanceof PostgresStore) {
     const exchange = options.wechatExchange ?? createWechatExchange(appId!, secret!);
     auth.login = async code => store.createWechatSession((await exchange(code)).openId);
   }
-  // 模型密钥只从本机 .env 读取：接口不接受密钥，也不把密钥写入数据库或日志。
-  const secretaryMode = (options.secretary?.mode ?? process.env.SECRETARY_MODE ?? 'off') as SecretaryMode;
-  if (!['off', 'stub', 'http'].includes(secretaryMode)) throw new Error('SECRETARY_MODE 仅支持 off、stub 或 http');
-  let secretaryModel = options.secretary?.model ?? null;
-  if (!secretaryModel && secretaryMode === 'http') {
-    const apiKey = process.env.SECRETARY_API_KEY, modelName = process.env.SECRETARY_MODEL;
-    if (!apiKey || !modelName) throw new Error('SECRETARY_MODE=http 必须在本机 .env 配置 SECRETARY_API_KEY 与 SECRETARY_MODEL');
-    secretaryModel = new HttpModel({ apiKey, model: modelName, baseUrl: process.env.SECRETARY_BASE_URL ?? 'https://api.openai.com/v1' });
-  }
-  const secretary = new SecretaryService(secretaryMode, secretaryModel ?? undefined);
   @Module({
     controllers: [PublicController, PersonalController, RoundtableController],
     providers: [
       { provide: STORE, useValue: store }, { provide: AUTH, useValue: auth },
-      { provide: SECRETARY, useValue: secretary }, SessionGuard,
+      { provide: SECRETARY, useValue: secretary }, { provide: SECRETARY_ACCESS, useValue: secretaryAccess }, SessionGuard,
+      { provide: READINESS, useValue: new Readiness(() => store.checkReady()) },
+      { provide: LOGIN_ACCESS, useValue: new LoginAccess() },
     ],
   })
   class AppModule {}
-  const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false, abortOnError: false, bodyParser: false });
+  app.useBodyParser('json', { limit: '16kb' });
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().disable('x-powered-by');
   app.use((_req: unknown, res: { setHeader: (key: string, value: string) => void }, next: () => void) => {

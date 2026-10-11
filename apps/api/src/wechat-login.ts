@@ -6,6 +6,7 @@ export type WechatExchange = (code: string) => Promise<{ openId: string }>;
 export const AUTH = Symbol('authentication');
 export interface AuthRuntime {
   mode: AuthMode;
+  production?: boolean;
   login?: (code: string) => Promise<unknown>;
 }
 export function validateLoginCode(value: unknown): string {

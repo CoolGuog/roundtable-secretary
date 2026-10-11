@@ -1,0 +1,14 @@
+<view class="page">
+  <text class="eyebrow">YOUR WEEK</text><view class="title">看见一周的安排。</view><view class="subtitle">{{mode}} · 周一至周日 · 北京时间</view>
+  <view class="card"><picker class="week-date" mode="date" value="{{anchor}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">选择一周中的日期：{{anchor}} ▾</view></picker><view class="week-controls"><button class="secondary previous-week" bindtap="previous" disabled="{{!loaded || !canPrevious}}">上一周</button><button class="secondary current-week" bindtap="currentWeek">本周</button><button class="secondary next-week" bindtap="next" disabled="{{!loaded || !canNext}}">下一周</button></view><button class="secondary refresh-week" bindtap="reload" disabled="{{loading}}">{{loading ? '读取中…' : '刷新日程和任务'}}</button></view>
+  <view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{loading}}" class="empty">正在读取本周记录…</view>
+  <block wx:if="{{loaded}}">
+    <view class="card"><view class="card-title">{{start}} — {{end}}</view><view class="week-stats"><view class="week-stat"><text>{{stats.count}}</text>条安排</view><view class="week-stat"><text>{{stats.occupiedMinutes}}</text>分钟占用</view><view class="week-stat"><text>{{stats.ended}}</text>条已结束</view><view class="week-stat" wx:if="{{taskStatsAvailable}}"><text>{{stats.taskPending}}</text>项到期未完成任务</view></view>
+      <view class="muted spaced">时间占用已去除同日重叠。当前安排未区分会议与其他日程；时间结束不代表会议成功举办。</view>
+      <view wx:if="{{taskStatsAvailable}}" class="notice">本机所有圆桌中，截止日期在本周的任务：共 {{stats.taskCount}} 项，已验收 {{stats.taskDone}} 项，逾期未完成 {{stats.taskOverdue}} 项。不包含会前清单。</view>
+      <view wx:elif="{{taskError}}" class="error">任务统计读取失败：{{taskError}}。日程统计仍可查看。</view>
+      <view wx:else class="notice">后台任务同步尚未接入，此处仅统计你的日程。</view>
+    </view>
+    <view class="card" wx:for="{{days}}" wx:key="date"><view class="week-heading">{{item.label}}</view><view class="muted">{{item.records.length}} 条 · 占用 {{item.occupiedMinutes}} 分钟</view><view class="muted spaced" wx:if="{{!item.records.length}}">这一天没有安排。</view><view class="record" wx:for="{{item.records}}" wx:for-item="record" wx:key="id"><view class="row"><text>{{record.startTime}}—{{record.endTime}}</text><text class="badge">{{record.stateLabel}}</text></view><view class="week-title">{{record.title}}</view></view></view>
+  </block>
+</view>
