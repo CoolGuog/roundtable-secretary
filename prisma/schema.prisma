@@ -139,6 +139,7 @@ model Roundtable {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   members RoundtableMember[]
   proposals Proposal[]
+  arrangements Arrangement[]
   @@index([ownerId])
   @@map("roundtables")
 }
@@ -236,6 +237,9 @@ model DemoSession {
 model Arrangement {
   id      String @id @default(uuid()) @db.Uuid
   ownerId String @map("owner_id") @db.Uuid
+  /// 同一圆桌活动改期时更新原记录；个人安排没有来源圆桌。
+  sourceRoomId String? @map("source_room_id") @db.Uuid
+  sourceRoom Roundtable? @relation(fields: [sourceRoomId], references: [id], onDelete: SetNull)
 
   /// 安排名称，1~60 字（与现有接口校验保持一致）
   title String @db.VarChar(60)
@@ -257,6 +261,7 @@ model Arrangement {
 
   /// 忙闲摘要与冲突检测的主要查询路径
   @@index([ownerId, startsAt])
+  @@unique([ownerId, sourceRoomId])
   @@map("arrangements")
 }
 

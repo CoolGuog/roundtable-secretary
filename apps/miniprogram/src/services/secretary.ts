@@ -4,7 +4,10 @@ export interface ArrangementInput { title: string; date: string; startTime: stri
 export interface Arrangement extends ArrangementInput { id: string; createdAt: string; }
 const dataKey = 'roundtable.demo.arrangements.v1';
 const legacySessionKey = 'roundtable.demo.session.v1';
-const sessionKey = () => `roundtable.session.v2.${config.authMode}.${config.apiBase}`;
+// Only local demo previews use A/B identities; real WeChat sessions retain their existing keys.
+const demoIdentity = () => config.mode === 'api' && config.authMode === 'demo' &&
+  /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(config.apiBase) ? config.demoIdentity : undefined;
+const sessionKey = () => `roundtable.session.v2.${config.authMode}.${config.apiBase}${demoIdentity() ? `.preview-${demoIdentity()}` : ''}`;
 let sessionPromise: Promise<string> | undefined;
 let sessionEpoch = 0;
 class LoginExpired extends Error {}
@@ -16,7 +19,7 @@ export interface ScheduleDraft {
   model: string; message: string;
 }
 
-export function modeLabel() { return config.mode === 'local' ? '本机演示 · 未联网' : config.authMode === 'wechat' ? '本地后台 · 微信登录' : '本地后台 · 演示会话'; }
+export function modeLabel() { return config.mode === 'local' ? '本机演示 · 未联网' : config.authMode === 'wechat' ? '本地后台 · 微信登录' : demoIdentity() ? `测试学生 ${demoIdentity()} · 本地后台` : '本地后台 · 演示会话'; }
 export function loginEnabled() { return config.mode === 'api' && config.authMode === 'wechat'; }
 export function hasLogin() { return Boolean(wx.getStorageSync(sessionKey())); }
 // 与 apps/api/src/time.ts 对齐：中国无夏令时，北京时间恒为 UTC+8。
@@ -54,7 +57,7 @@ function ensureSession(): Promise<string> {
   const promise = (async () => {
     const session = config.authMode === 'wechat'
       ? await raw<{ token: string }>('/auth/wechat', 'POST', { code: await wechatCode() })
-      : await raw<{ token: string }>('/dev/sessions', 'POST', { name: '演示用户' });
+      : await raw<{ token: string }>('/dev/sessions', 'POST', { name: demoIdentity() ? `测试学生${demoIdentity()}` : '演示用户' });
     if (epoch !== sessionEpoch) throw new Error('登录已取消，请重试');
     if (typeof session.token !== 'string' || !/^[a-f0-9]{64}$/.test(session.token)) throw new Error('登录响应无效，请重试');
     wx.setStorageSync(sessionKey(), session.token);
@@ -99,7 +102,16 @@ function raw<T>(path: string, method: Method, data?: object, token?: string): Pr
         } else if (response.statusCode === 404) reject(new Error(path.startsWith('/roundtables') ? ((response.data as { message?: string })?.message || '圆桌不存在或你已不是成员') : path.startsWith('/me/memories/') ? '这条记忆已不存在，请刷新后重试' : path.startsWith('/me/arrangements/') ? '这条安排已不存在，请刷新后重试' : '登录方式与后台配置不一致，请检查运行配置'));
         else reject(new Error((response.data as { message?: string })?.message || '服务暂时不可用'));
       },
-      fail() { reject(new Error('无法连接本地后台，请确认服务已启动，或切回本机演示模式。')); },
+      fail(error) {
+        const detail = error?.errMsg || '';
+        if (/url not in domain list|domain.*(invalid|list)|不在.*合法域名/i.test(detail)) {
+          reject(new Error('请求被域名校验拦截。本机调试请在开发者工具“详情 → 本地设置”勾选“不校验合法域名”，然后重新编译。'));
+        } else if (/timeout|timed out/i.test(detail)) {
+          reject(new Error('后台请求超时，请检查本机服务状态后重试。'));
+        } else {
+          reject(new Error('无法连接后台。请确认本机服务已启动、开发者工具允许本机 HTTP 请求；手机不能使用电脑的 127.0.0.1 地址。'));
+        }
+      },
     });
   });
 }

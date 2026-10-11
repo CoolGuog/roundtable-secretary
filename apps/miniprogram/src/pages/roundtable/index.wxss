@@ -10,3 +10,5 @@
 .decisions { margin-top: 24rpx; }
 .accept { margin: 0; flex: 1; }
 .reject { margin: 0; flex-shrink: 0; }
+.toast-overlay { position: fixed; top: 100rpx; left: 0; right: 0; z-index: 1000; display: flex; justify-content: center; padding: 0 36rpx; pointer-events: none; }
+.toast-content { max-width: 620rpx; padding: 24rpx 32rpx; border-radius: 18rpx; background: rgba(30, 42, 36, 0.86); color: #fff; font-size: 27rpx; line-height: 1.6; text-align: center; box-shadow: 0 6rpx 24rpx rgba(0, 0, 0, 0.12); }

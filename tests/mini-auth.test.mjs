@@ -8,8 +8,8 @@ const token = 'a'.repeat(64);
 const nextToken = 'b'.repeat(64);
 const key = 'roundtable.session.v2.wechat.http://127.0.0.1:3000';
 const sample = { title: '虚构日程', date: '2026-10-01', startTime: '19:00', endTime: '20:00' };
-function client(handler, initial = {}) {
-  const storage = new Map(Object.entries(initial));
+function client(handler, initial = {}, configOverrides = {}, sharedStorage) {
+  const storage = sharedStorage || new Map(Object.entries(initial));
   let logins = 0;
   const calls = [];
   const wx = {
@@ -22,11 +22,37 @@ function client(handler, initial = {}) {
   const exports = {};
   const source = fs.readFileSync('apps/miniprogram/src/services/secretary.ts', 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const context = vm.createContext({ wx, exports, require: () => ({ config: { mode: 'api', authMode: 'wechat', apiBase: 'http://127.0.0.1:3000' } }) });
+  const context = vm.createContext({ wx, exports, require: () => ({ config: { mode: 'api', authMode: 'wechat', apiBase: 'http://127.0.0.1:3000', ...configOverrides } }) });
   vm.runInContext(js, context);
   return { api: exports, storage, calls, logins: () => logins };
 }
 const ok = (options, data) => options.success({ statusCode: 200, data });
+
+test('两个演示窗口即使共享存储也使用不同身份，刷新后保留本人会话', async () => {
+  const storage = new Map();
+  const handler = identity => options => {
+    if (options.url.endsWith('/dev/sessions')) {
+      assert.equal(options.data.name, `测试学生${identity}`);
+      return ok(options, { token: identity === 'A' ? token : nextToken });
+    }
+    assert.equal(options.header.Authorization, `Bearer ${identity === 'A' ? token : nextToken}`);
+    return ok(options, []);
+  };
+  const a = client(handler('A'), {}, { authMode: 'demo', demoIdentity: 'A' }, storage);
+  const b = client(handler('B'), {}, { authMode: 'demo', demoIdentity: 'B' }, storage);
+  await Promise.all([a.api.listArrangements(), b.api.listArrangements()]);
+  const refreshed = client(handler('A'), {}, { authMode: 'demo', demoIdentity: 'A' }, storage);
+  await refreshed.api.listArrangements();
+  assert.ok(refreshed.calls.every(call => !call.url.endsWith('/dev/sessions')));
+  assert.equal(storage.size, 2);
+});
+
+test('测试窗口标识不改变真实微信登录身份', async () => {
+  const c = client(options => ok(options, []), { [key]: token }, { demoIdentity: 'A' });
+  await c.api.listArrangements();
+  assert.equal(c.logins(), 0);
+  assert.equal(c.calls[0].header.Authorization, `Bearer ${token}`);
+});
 
 test('并发读取共用一次 wx.login，不串成多个会话', async () => {
   const c = client(options => ok(options, options.url.endsWith('/auth/wechat') ? { token } : []));
@@ -66,6 +92,23 @@ test('退出登录撤销服务端会话，清理演示数据不影响微信会�
   assert.equal(c.calls[0].method, 'DELETE');
   assert.ok(c.calls[0].url.endsWith('/me/session'));
   assert.equal(c.storage.has(key), false);
+});
+
+test('网络失败区分域名拦截与超时，不泄露原始错误或清除会话', async () => {
+  for (const [errMsg, expected] of [
+    ['request:fail url not in domain list', /域名校验拦截/],
+    ['request:fail timeout', /请求超时/],
+    ['request:fail connection refused SECRET_SENTINEL', /无法连接后台/],
+  ]) {
+    const c = client(options => options.fail({ errMsg }), { [key]: token });
+    await assert.rejects(c.api.listArrangements(), error => {
+      assert.match(error.message, expected);
+      assert.ok(!error.message.includes('SECRET_SENTINEL'));
+      return true;
+    });
+    assert.equal(c.calls.length, 1);
+    assert.equal(c.storage.get(key), token);
+  }
 });
 test('退出后到达的登录响应不能重新写入令牌', async () => {
   let release;

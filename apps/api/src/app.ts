@@ -29,16 +29,17 @@ class DemoStore implements PersonalStore {
   readonly rooms = new MemoryRooms(id => this.users.get(id)!.name);
   readonly negotiation = new MemoryNegotiation({
     room: (userId, roomId) => this.rooms.core(userId, roomId),
-    arrangements: userId => this.list(userId),
+    arrangements: userId => [...this.arrangements.get(userId)!.values()],
     createArrangements: entries => {
       // 全部校验和预生成成功后再写，避免后一个成员满额时只写入前一个成员。
       const counts = new Map<string, number>();
-      const pending = entries.map(({ userId, value }) => {
+      const pending = entries.map(({ userId, value, sourceRoomId }) => {
         const input = validateArrangement(value);
-        const count = (counts.get(userId) ?? this.arrangements.get(userId)!.size) + 1;
+        const existing = [...this.arrangements.get(userId)!.values()].find(item => item.sourceRoomId === sourceRoomId);
+        const count = (counts.get(userId) ?? this.arrangements.get(userId)!.size) + (existing ? 0 : 1);
         if (count > 100) throw new BadRequestException('有成员的日程已达 100 条上限，无法写入');
         counts.set(userId, count);
-        return { userId, item: { ...input, id: randomUUID(), createdAt: new Date().toISOString() } };
+        return { userId, item: { ...input, sourceRoomId, id: existing?.id ?? randomUUID(), createdAt: existing?.createdAt ?? new Date().toISOString() } };
       });
       for (const { userId, item } of pending) this.arrangements.get(userId)!.set(item.id, item);
     },
@@ -46,7 +47,7 @@ class DemoStore implements PersonalStore {
   });
   private readonly users = new Map<string, User>();
   private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
-  private readonly arrangements = new Map<string, Map<string, Arrangement>>();
+  private readonly arrangements = new Map<string, Map<string, Arrangement & { sourceRoomId?: string }>>();
   private readonly memories = new Map<string, Map<string, PersonalMemory>>();
   private hash(token: string) { return createHash('sha256').update(token).digest('hex'); }
 
@@ -72,6 +73,7 @@ class DemoStore implements PersonalStore {
   profile(userId: string) { return this.users.get(userId)!; }
   list(userId: string) {
     return [...this.arrangements.get(userId)!.values()]
+      .map(({ sourceRoomId: _source, ...item }) => item)
       .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
   }
   create(userId: string, value: unknown) {
@@ -92,7 +94,7 @@ class DemoStore implements PersonalStore {
       startTime: existing.startTime, endTime: existing.endTime, ...patch,
     });
     const item: Arrangement = { ...merged, id: existing.id, createdAt: existing.createdAt };
-    records.set(id, item);
+    records.set(id, { ...item, sourceRoomId: existing.sourceRoomId });
     return item;
   }
   remove(userId: string, id: string) {

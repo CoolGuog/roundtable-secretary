@@ -17,6 +17,43 @@ async function pair(call, user, prefix = '协商') {
 const availability = async (call, token, id) => (await call(`/roundtables/${id}/availability`, 'GET', token)).json();
 
 export async function negotiationContract(t, call, user) {
+  await t.test('手动时间不受推荐数量和半小时步长限制；授权冲突、非法日期和错误时长仍拒绝', async () => {
+    const { a, id } = await pair(call, user, '手动选时');
+    const route = `/roundtables/${id}/proposals`;
+    const slot = { date: sampleRoomDates[2], startTime: '15:17', endTime: '16:17' };
+    assert.ok(!(await availability(call, a.token, id)).slots.some(item => JSON.stringify(item) === JSON.stringify(slot)));
+    for (const invalid of [{ ...slot, date: '2027-02-30' }, { ...slot, endTime: '16:18' }, { ...slot, endTime: '18:17', startTime: '17:17' }]) {
+      assert.equal((await call(route, 'POST', a.token, invalid)).status, 400);
+    }
+    const busy = await (await call('/me/arrangements', 'POST', a.token, { title: '私密课程', ...slot })).json();
+    const blocked = await call(route, 'POST', a.token, slot);
+    assert.equal(blocked.status, 400); assert.ok(!(await blocked.text()).includes('私密课程'));
+    await call(`/me/arrangements/${busy.id}`, 'DELETE', a.token);
+    const response = await call(route, 'POST', a.token, slot);
+    assert.equal(response.status, 201); assert.equal((await response.json()).startTime, '15:17');
+  });
+  await t.test('未授权也可手动提案；手动改期须全员重新确认后替换原时间', async () => {
+    const { a, b, id } = await pair(call, user, '手动改期');
+    for (const account of [a, b]) await call(`/roundtables/${id}/membership`, 'PUT', account.token, { shareBusy: false });
+    const route = `/roundtables/${id}/proposals`;
+    const records = async account => (await (await call('/me/arrangements', 'GET', account.token)).json());
+    const slot = { date: DAY, startTime: '14:17', endTime: '15:17' };
+    let response = await call(route, 'POST', a.token, slot);
+    assert.equal(response.status, 201);
+    const first = await response.json();
+    for (const account of [a, b]) assert.equal((await call(`${route}/${first.id}`, 'PUT', account.token, { decision: 'ACCEPT' })).status, 200);
+    const old = await records(a);
+    response = await call(route, 'POST', b.token, { ...slot, startTime: '14:37', endTime: '15:37' });
+    assert.equal(response.status, 201);
+    const second = await response.json();
+    assert.ok(second.votes.every(vote => vote.decision === 'PENDING'));
+    await call(`${route}/${second.id}`, 'PUT', b.token, { decision: 'ACCEPT' });
+    assert.deepEqual(await records(a), old);
+    const confirmed = await call(`${route}/${second.id}`, 'PUT', a.token, { decision: 'ACCEPT' });
+    assert.equal(confirmed.status, 200); assert.equal((await confirmed.json()).status, 'CONFIRMED');
+    for (const account of [a, b]) { const items = await records(account); assert.equal(items.length, 1); assert.equal(items[0].startTime, '14:37'); }
+    assert.equal((await records(a))[0].id, old[0].id);
+  });
   await t.test('共同可用时间：排除忙时段、不泄露标题、未授权不参与', async () => {
     const { a, b, id } = await pair(call, user);
     assert.equal((await call(`/roundtables/${id}/availability`, 'GET', a.token)).status, 200);
@@ -57,7 +94,7 @@ export async function negotiationContract(t, call, user) {
     }
     const full = await availability(call, owner.token, id);
     assert.deepEqual(full.slots, []);
-    assert.match(full.reason, /找不到 60 分钟的共同空档/);
+    assert.match(full.reason, /找不到 60 分钟的未来共同空档/);
   });
 
   await t.test('方案确认闭环：全员接受后写入各自日程，且不会重复写入', async () => {

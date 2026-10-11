@@ -61,4 +61,42 @@ export async function negotiationRecoveryContract(t, call, user) {
     assert.equal((await (await call('/me/arrangements', 'GET', a.token)).json()).length, 1);
     assert.equal((await (await call('/me/arrangements', 'GET', b.token)).json()).length, 100);
   });
+  await t.test('圆桌改期只在全员确认后更新原记录；保留同名个人安排，允许旧时间重叠和满额更新', async () => {
+    const { a, b, root, propose } = await pair('活动改期');
+    const records = async account => (await (await call('/me/arrangements', 'GET', account.token)).json());
+    const first = await propose();
+    for (const account of [a, b]) assert.equal((await call(`${root}/proposals/${first.id}`, 'PUT', account.token, { decision: 'ACCEPT' })).status, 200);
+    const originals = [(await records(a))[0], (await records(b))[0]];
+    const personal = await (await call('/me/arrangements', 'POST', a.token, { title: '活动改期', date: futureDate(), startTime: '00:00', endTime: '01:00' })).json();
+    // 与原来的 09:00–10:00 部分重叠，改期不应被自己的旧日程阻挡。
+    const slot = { date: futureDate(), startTime: '09:30', endTime: '10:30' };
+    const response = await call(root + '/proposals', 'POST', a.token, slot);
+    assert.equal(response.status, 201);
+    const second = await response.json();
+    await call(`${root}/proposals/${second.id}`, 'PUT', a.token, { decision: 'ACCEPT' });
+    for (const [index, account] of [a, b].entries()) assert.deepEqual((await records(account)).find(item => item.id === originals[index].id), originals[index]);
+    // 提案之后新增真实冲突，最后确认必须整体回滚，旧安排仍然存在。
+    const blocker = await (await call('/me/arrangements', 'POST', b.token, { title: '临时课程', ...slot })).json();
+    assert.equal((await call(`${root}/proposals/${second.id}`, 'PUT', b.token, { decision: 'ACCEPT' })).status, 400);
+    for (const [index, account] of [a, b].entries()) assert.deepEqual((await records(account)).find(item => item.id === originals[index].id), originals[index]);
+    assert.equal((await (await call(root + '/proposal', 'GET', b.token)).json()).votes.find(vote => vote.isMe).decision, 'PENDING');
+    await call(`/me/arrangements/${blocker.id}`, 'DELETE', b.token);
+    for (let i = 0; i < 99; i++) assert.equal((await call('/me/arrangements', 'POST', b.token, { title: '额度', date: futureDate(), startTime: '00:00', endTime: '01:00' })).status, 201);
+    const confirmed = await call(`${root}/proposals/${second.id}`, 'PUT', b.token, { decision: 'ACCEPT' });
+    assert.equal(confirmed.status, 200); assert.equal((await confirmed.json()).status, 'CONFIRMED');
+    for (const [index, account] of [a, b].entries()) {
+      const items = await records(account);
+      const updated = items.find(item => item.id === originals[index].id);
+      assert.equal(updated.startTime, slot.startTime); assert.equal(updated.endTime, slot.endTime);
+      assert.equal(items.filter(item => item.title === '活动改期' && item.startTime !== '00:00').length, 1);
+    }
+    assert.deepEqual((await records(a)).find(item => item.id === personal.id), personal);
+    assert.equal((await records(b)).length, 100);
+    const third = await propose();
+    await call(`${root}/proposals/${third.id}`, 'DELETE', a.token);
+    assert.equal((await records(b)).find(item => item.id === originals[1].id).startTime, slot.startTime);
+    const fourth = await propose();
+    await call(`${root}/proposals/${fourth.id}`, 'PUT', b.token, { decision: 'REJECT' });
+    assert.equal((await records(b)).find(item => item.id === originals[1].id).startTime, slot.startTime);
+  });
 }
