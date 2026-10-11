@@ -229,6 +229,12 @@ class PersonalController {
   removeMemory(@Req() request: AuthRequest, @Param('id') id: string) { return this.store.removeMemory(request.userId!, id); }
   // 第 13 步：把一句话整理成「待确认」草稿。这里只返回草稿，写入日程要走上面的保存接口。
   @Get('secretary/status') secretaryStatus() { return this.secretaryAccess.status(); }
+  @Post('secretary/drafts')
+  async drafts(@Req() request: AuthRequest, @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'text')) throw new BadRequestException('草稿请求只接受 text 字段');
+    const text = validateSecretaryText((body as { text?: unknown }).text, 3000);
+    return this.secretaryAccess.run(request.userId!, async () => this.secretary.drafts(text, await this.store.listMemories(request.userId!)));
+  }
   @Post('secretary/draft')
   async draft(@Req() request: AuthRequest, @Body() body: unknown) {
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'text')) {

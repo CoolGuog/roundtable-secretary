@@ -28,11 +28,12 @@ export class SecretaryAccess {
   constructor(private readonly secretary: SecretaryService, private readonly clock = Date.now) {}
   status() {
     return { mode: this.secretary.mode, canGenerate: this.secretary.mode !== 'off',
-      connectionVerified: false, acceptsModelKeys: false,
+      connectionVerified: Boolean(this.secretary.lastSuccessfulAt), lastSuccessfulAt: this.secretary.lastSuccessfulAt,
+      model: this.secretary.modelName, acceptsModelKeys: false,
       limits: { requestsPerMinute: PER_USER, concurrentPerUser: 1, concurrentTotal: GLOBAL_CONCURRENT, persistent: false },
       message: this.secretary.mode === 'off' ? '秘书整理未开启，可以手动填写安排'
         : this.secretary.mode === 'stub' ? '使用本地规则整理，不会请求外部模型'
-        : '已配置外部模型，生成时会发送你的描述和个人记忆；连接是否可用以本次结果为准' };
+        : `已配置 ${this.secretary.modelName}，生成时会发送你的描述和最多 20 条个人偏好；连接是否可用以本次结果为准` };
   }
   private reject(message: string, seconds: number): never {
     throw new HttpException({ statusCode: 429, message, retryAfterSeconds: seconds }, 429);

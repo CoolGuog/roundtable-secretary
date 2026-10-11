@@ -1,5 +1,5 @@
 import {
-  today, modeLabel, listArrangements, saveArrangement, draftFromText, errorMessage, ScheduleDraft, loadSecretaryStatus, SecretaryStatus, RequestError,
+  today, modeLabel, listArrangements, saveArrangement, draftFromText, draftsFromText, BatchItem, errorMessage, ScheduleDraft, loadSecretaryStatus, SecretaryStatus, RequestError,
 } from '../../services/secretary';
 import type { Arrangement } from '../../services/secretary';
 import { validateDraft, findConflicts, conflictSignature } from '../../services/arrangement-conflicts';
@@ -7,6 +7,7 @@ import { repeatRule, expandRepeat, RepeatSeries } from '../../services/repeat-en
 
 Page({
   data: {
+    batch: [] as BatchItem[], batchNotes: [] as string[], batchModel: '', batchEdit: -1,
     mode: modeLabel(), count: 0, showForm: false, formSource: 'manual', saving: false, error: '',
     title: '', date: today(), startTime: '19:00', endTime: '20:00',
     utterance: '', drafting: false, draft: null as ScheduleDraft | null, draftMemoryNote: '',
@@ -39,7 +40,7 @@ Page({
     catch (error) { if (epoch === this._statusEpoch) this.setData({ statusError: errorMessage(error) }); }
     finally { if (epoch === this._statusEpoch) this.setData({ statusLoading: false }); }
   },
-  openForm() { if (!this.data.drafting && !this.data.saving) this.setData({ showForm: true, formSource: 'manual', error: '' }); },
+  openForm() { if (!this.data.drafting && !this.data.saving) this.setData({ showForm: true, formSource: 'manual', batchEdit: -1, error: '' }); },
   closeForm() { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ showForm: false }); } },
   onUtterance(event: WechatMiniprogram.Input) { this.setData({ utterance: event.detail.value }); },
   onTitle(event: WechatMiniprogram.Input) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ title: event.detail.value, error: '' }); } },
@@ -58,13 +59,14 @@ Page({
     if (this.data.saving) return;
     this._draftEpoch++;
     this.invalidateConflicts();
-    this.setData({ utterance: '', drafting: false, draft: null, draftMemoryNote: '', messages: [], turns: 0,
+    this.setData({ batch: [], batchNotes: [], batchEdit: -1, utterance: '', drafting: false, draft: null, draftMemoryNote: '', messages: [], turns: 0,
       showForm: false, title: '', date: today(), startTime: '19:00', endTime: '20:00', error: '', repeatKind: 'once', repeatIndex: 0, repeatDays: [] });
   },
   sendReply() { return this.generate(true); },
   // 只整理成草稿：解析出来的字段填进下面的表单，仍然要用户点一次确认才写入。
   async generate(continuing: unknown = false) {
     if (this.data.drafting || this.data.saving || this.data.statusLoading) return;
+    if (this.data.secretaryStatus?.mode === 'http') return this.generateBatch();
     if (!this.data.secretaryStatus?.canGenerate) {
       this.setData({ error: this.data.secretaryStatus?.message || '请先重新读取秘书状态，也可以手动填写安排' }); return;
     }
@@ -102,6 +104,84 @@ Page({
     } catch (error) { if (epoch === this._draftEpoch) this.setData({ error: errorMessage(error) }); }
     finally { if (epoch === this._draftEpoch) this.setData({ drafting: false }); }
   },
+  async generateBatch() {
+    const text = this.data.utterance.trim();
+    if (!text || text.length > 3000) { this.setData({ error: '请填写1至3000字的安排描述' }); return; }
+    if (this.data.batch.some((item: BatchItem) => !item.saved)) {
+      const result = await wx.showModal({ title: '重新整理？', content: '将替换当前尚未保存的草稿，请先保存需要保留的内容。' });
+      if (!result.confirm) return;
+    }
+    const epoch = ++this._draftEpoch;
+    this.setData({ drafting: true, error: '', showForm: false, batchEdit: -1 });
+    try {
+      const result = await draftsFromText(text);
+      if (epoch !== this._draftEpoch) return;
+      this.setData({ batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null,
+        messages: [{ id: 0, role: 'user', text }, { id: 1, role: 'secretary', text: `整理出 ${result.items.length} 类安排。请逐条核对，补充重复起止日期；确认后才会写入。` }] });
+    } catch (error) { if (epoch === this._draftEpoch) this.setData({ error: errorMessage(error) }); }
+    finally { if (epoch === this._draftEpoch) this.setData({ drafting: false }); }
+  },
+  toggleBatch(event: WechatMiniprogram.TouchEvent) {
+    const index = Number(event.currentTarget.dataset.index);
+    const item = this.data.batch[index];
+    if (!item || item.saved || this.data.saving || this.data.drafting) return;
+    this.setData({ [`batch[${index}].selected`]: !item.selected });
+  },
+  editBatch(event: WechatMiniprogram.TouchEvent) {
+    const index = Number(event.currentTarget.dataset.index), item = this.data.batch[index];
+    if (!item || item.saved || item.uncertain || this.data.saving || this.data.drafting) return;
+    this.invalidateConflicts();
+    this.setData({ batchEdit: index, showForm: true, formSource: 'batch', title: item.title || '', date: item.date || '', startTime: item.startTime || '', endTime: item.endTime || '',
+      repeatKind: item.repeatKind, repeatIndex: ['once', 'daily', 'weekly'].indexOf(item.repeatKind), repeatDays: item.weekdays, repeatUntil: item.until || '',
+      weekdays: this.data.weekdays.map((day: { value: number; label: string }) => ({ ...day, checked: item.weekdays.includes(day.value) })) });
+    wx.pageScrollTo({ selector: '#batch-editor', duration: 200 });
+  },
+  async saveBatch() {
+    if (this.data.saving || this.data.drafting || this.data.checking || this.data.showForm) return;
+    const selected = (this.data.batch as BatchItem[]).map((item, index) => ({ item, index })).filter(({ item }) => item.selected && !item.saved);
+    if (!selected.length) { this.setData({ error: '请先勾选要保存的安排' }); return; }
+    const inputs: Array<{ index: number; input: import('../../services/secretary').ArrangementInput }> = [];
+    try {
+      for (const { item, index } of selected) {
+        const input: import('../../services/secretary').ArrangementInput = { title: item.title || '', date: item.date || '', startTime: item.startTime || '', endTime: item.endTime || '' };
+        const invalid = validateDraft(input); if (invalid) throw new Error(`第${index + 1}条：${invalid}`);
+        if (item.repeatKind !== 'once') {
+          if (!item.until) throw new Error(`第${index + 1}条：请设置重复结束日期`);
+          input.repeat = repeatRule({ kind: item.repeatKind, weekdays: item.weekdays, until: item.until }, input.date);
+        }
+        inputs.push({ index, input });
+      }
+    } catch (error) { this.setData({ error: errorMessage(error) }); return; }
+    this.setData({ saving: true, error: '' });
+    const epoch = ++this._checkEpoch;
+    let saved = 0;
+    try {
+      const previews: Arrangement[] = [];
+      const overlaps = new Set<string>();
+      for (const { index, input } of inputs) {
+        const end = input.repeat ? [input.repeat.until!, new Date(Date.parse(input.date) + 30 * 86400000).toISOString().slice(0, 10)].sort()[0] : input.date;
+        const existing = await listArrangements(input.date, end);
+        const occurrences = input.repeat ? expandRepeat({ ...input, repeat: input.repeat, id: `batch-${index}`, createdAt: '', exceptions: {} }, input.date, end) : [{ ...input, id: `batch-${index}`, createdAt: '' }];
+        for (const occurrence of occurrences) for (const conflict of findConflicts(occurrence, [...existing, ...previews])) overlaps.add(`${input.title} / ${conflict.title}`);
+        previews.push(...occurrences);
+      }
+      if (this._disposed || epoch !== this._checkEpoch) return;
+      const result = await wx.showModal({ title: `确认写入 ${inputs.length} 类安排？`, content: overlaps.size ? `发现重叠：${[...overlaps].slice(0, 5).join('；')}。仍要保存吗？重复安排检查开始日起31天。` : '已检查开始日起31天内的日程。重复事项将按所选规则和结束日期写入。', confirmText: overlaps.size ? '仍然保存' : '确认写入' });
+      if (!result.confirm || this._disposed || epoch !== this._checkEpoch) return;
+      for (const { index, input } of inputs) {
+        try { await saveArrangement(input); }
+        catch (error) {
+          if (error instanceof RequestError && error.statusCode === 0) this.setData({ [`batch[${index}].uncertain`]: true });
+          throw error;
+        }
+        saved++;
+        this.setData({ [`batch[${index}].saved`]: true, [`batch[${index}].selected`]: false, [`batch[${index}].uncertain`]: false });
+      }
+      wx.showToast({ title: `已保存${saved}类安排`, icon: 'success' });
+      try { const records = await listArrangements(); if (!this._disposed) this.setData({ count: records.length }); } catch { /* 保存状态已记录，数量下次进入时刷新。 */ }
+    } catch (error) { this.setData({ error: `本次已保存${saved}类；其余保留供重试。${errorMessage(error)}` }); }
+    finally { if (!this._disposed) this.setData({ saving: false }); }
+  },
   confirmOverlap() { return this.save(true); },
   async save(allowOverlap: unknown = false) {
     if (this._disposed || this.data.saving || this.data.drafting || this.data.checking) return;
@@ -113,6 +193,12 @@ Page({
     }
     const invalid = validateDraft(input);
     if (invalid) { this.invalidateConflicts(); this.setData({ error: invalid }); return; }
+    if (this.data.formSource === 'batch' && this.data.batchEdit >= 0) {
+      if (input.repeat && !input.repeat.until) { this.setData({ error: '请设置重复结束日期' }); return; }
+      const index = this.data.batchEdit;
+      this.setData({ [`batch[${index}]`]: { ...this.data.batch[index], ...input, repeatKind: this.data.repeatKind, weekdays: this.data.repeatDays, until: input.repeat?.until || null, status: 'READY', missing: [] }, showForm: false, batchEdit: -1 });
+      return;
+    }
     const epoch = ++this._checkEpoch;
     const reviewed = allowOverlap === true ? this._conflictSignature : '';
     this.setData({ checking: true, error: '' });

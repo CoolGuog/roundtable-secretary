@@ -114,7 +114,7 @@ export async function logout() {
 function raw<T>(path: string, method: Method, data?: object, token?: string, requestId?: string): Promise<T> {
   return new Promise((resolve, reject) => {
     wx.request({
-      url: config.apiBase + path, method, data, timeout: 10000,
+      url: config.apiBase + path, method, data, timeout: path === '/me/secretary/drafts' ? 65000 : path === '/me/secretary/draft' ? 35000 : 10000,
       header: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(requestId ? { 'Idempotency-Key': requestId } : {}) },
       success(response) {
         if (response.statusCode >= 200 && response.statusCode < 300) resolve(response.data as T);
@@ -145,6 +145,11 @@ export async function draftFromText(text: string, previous: DraftFields | null =
   if (value.length > 200) throw new Error('描述请控制在 200 字以内');
   if (config.mode === 'local') return localDraft(value, previous, today());
   return request<ScheduleDraft>('/me/secretary/draft', 'POST', { text: value });
+}
+
+export interface BatchItem extends ScheduleDraft { repeatKind: string; weekdays: number[]; until: string | null; selected: boolean; saved: boolean; uncertain?: boolean; }
+export function draftsFromText(text: string) {
+  return request<{ items: BatchItem[]; model: string; notes: string[] }>('/me/secretary/drafts', 'POST', { text });
 }
 
 export async function listArrangements(from?: string, to?: string): Promise<Arrangement[]> {
