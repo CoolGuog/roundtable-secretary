@@ -1,5 +1,5 @@
 import {
-  today, modeLabel, listArrangements, saveArrangement, draftFromText, draftsFromText, BatchItem, errorMessage, ScheduleDraft, loadSecretaryStatus, SecretaryStatus, RequestError,
+  today, modeLabel, listArrangements, saveArrangement, draftFromText, draftsFromText, courseDraftsFromText, uploadCourseFile, BatchItem, errorMessage, ScheduleDraft, loadSecretaryStatus, SecretaryStatus, RequestError,
 } from '../../services/secretary';
 import type { Arrangement } from '../../services/secretary';
 import { validateDraft, findConflicts, conflictSignature } from '../../services/arrangement-conflicts';
@@ -8,6 +8,7 @@ import { repeatRule, expandRepeat, RepeatSeries } from '../../services/repeat-en
 Page({
   onFeedbackDismiss() { this.setData({ error: '', statusError: '' }); },
   data: {
+    courseText: '', courseContext: '', courseFileName: '', courseNotes: [] as string[], extracting: false,
     batch: [] as BatchItem[], batchNotes: [] as string[], batchModel: '', batchEdit: -1,
     mode: modeLabel(), count: 0, showForm: false, formSource: 'manual', saving: false, error: '',
     title: '', date: today(), startTime: '19:00', endTime: '20:00',
@@ -44,6 +45,47 @@ Page({
   openForm() { if (!this.data.drafting && !this.data.saving) this.setData({ showForm: true, formSource: 'manual', batchEdit: -1, error: '' }); },
   closeForm() { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ showForm: false }); } },
   onUtterance(event: WechatMiniprogram.Input) { this.setData({ utterance: event.detail.value }); },
+  onCourseText(event: WechatMiniprogram.Input) { this.setData({ courseText: event.detail.value }); },
+  onCourseContext(event: WechatMiniprogram.Input) { this.setData({ courseContext: event.detail.value }); },
+  async chooseCourseFile(event: WechatMiniprogram.TouchEvent) {
+    if (this.data.extracting || this.data.drafting || this.data.saving) return;
+    const consent = await wx.showModal({ title: '识别课表文件', content: '原文件发送到本机后台识别，不保存到数据库；你核对文字并点击整理后才会将文字发给模型。请先裁剪学号等无关信息。' });
+    if (!consent.confirm || this._disposed) return;
+    try {
+      let path: string, name: string, size: number;
+      if (event.currentTarget.dataset.kind === 'image') {
+        const result = await wx.chooseMedia({ count: 1, mediaType: ['image'], sourceType: ['album', 'camera'], sizeType: ['compressed'] });
+        path = result.tempFiles[0].tempFilePath; size = result.tempFiles[0].size; name = path.split('/').pop() || '课表截图.jpg';
+      } else {
+        const result = await wx.chooseMessageFile({ count: 1, type: 'file', extension: ['pdf', 'xlsx', 'csv', 'png', 'jpg', 'jpeg'] });
+        path = result.tempFiles[0].path; name = result.tempFiles[0].name; size = result.tempFiles[0].size;
+      }
+      const epoch = ++this._draftEpoch;
+      this.setData({ extracting: true, error: '' });
+      try {
+        const result = await uploadCourseFile(path, name, size);
+        if (epoch === this._draftEpoch) this.setData({ courseText: result.text, courseNotes: result.notes, courseFileName: name });
+      } finally { if (!this._disposed) this.setData({ extracting: false }); }
+    } catch (error) {
+      const message = (error as { errMsg?: string })?.errMsg || errorMessage(error);
+      if (!message.includes('cancel') && !this._disposed) this.setData({ error: message });
+    }
+  },
+  async generateCourses() {
+    if (this.data.extracting || this.data.drafting || this.data.saving) return;
+    if (!this.data.courseText.trim()) { this.setData({ error: '请先上传并核对课表文字' }); return; }
+    const confirm = await wx.showModal({ title: '整理课程草稿', content: '将核对后的课表文字与补充说明发给已配置模型。现有未保存草稿将被替换。单双周、调课等暂不支持自动入库，需核对未导入说明。' });
+    if (!confirm.confirm || this._disposed) return;
+    const epoch = ++this._draftEpoch;
+    this.setData({ drafting: true, error: '' });
+    try {
+      const result = await courseDraftsFromText(this.data.courseText, this.data.courseContext);
+      if (epoch !== this._draftEpoch) return;
+      this.setData({ batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null, showForm: false, batchEdit: -1,
+        messages: [{ id: 0, role: 'secretary', text: `课表整理出${result.items.length}类草稿。请核对下方说明和每条课程，尚未写入日程。` }] });
+    } catch (error) { if (epoch === this._draftEpoch) this.setData({ error: errorMessage(error) }); }
+    finally { if (epoch === this._draftEpoch) this.setData({ drafting: false }); }
+  },
   onTitle(event: WechatMiniprogram.Input) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ title: event.detail.value, error: '' }); } },
   onDate(event: WechatMiniprogram.PickerChange) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ date: String(event.detail.value), error: '' }); } },
   onStart(event: WechatMiniprogram.PickerChange) { if (!this.data.saving) { this.invalidateConflicts(); this.setData({ startTime: String(event.detail.value), error: '' }); } },
@@ -66,7 +108,7 @@ Page({
   sendReply() { return this.generate(true); },
   // 只整理成草稿：解析出来的字段填进下面的表单，仍然要用户点一次确认才写入。
   async generate(continuing: unknown = false) {
-    if (this.data.drafting || this.data.saving || this.data.statusLoading) return;
+    if (this.data.extracting || this.data.drafting || this.data.saving || this.data.statusLoading) return;
     if (this.data.secretaryStatus?.mode === 'http') return this.generateBatch();
     if (!this.data.secretaryStatus?.canGenerate) {
       this.setData({ error: this.data.secretaryStatus?.message || '请先重新读取秘书状态，也可以手动填写安排' }); return;

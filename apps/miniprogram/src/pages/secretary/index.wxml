@@ -59,6 +59,25 @@
     <button wx:if="{{messages.length || drafting}}" class="secondary new-draft" disabled="{{saving}}" bindtap="resetDraft">开始新安排</button>
     <view class="muted spaced">只生成待确认的草稿，确认后才会写入你的日程。</view>
   </view>
+  <view class="card" wx:if="{{secretaryStatus.mode === 'http'}}">
+    <view class="card-title">从课表文件导入</view>
+    <view class="muted spaced">PNG/JPG、PDF（最多3页）、XLSX/UTF-8 CSV，每份不超过4MB。旧版XLS请另存为XLSX。</view>
+    <view class="two-col">
+      <button class="secondary" data-kind="image" bindtap="chooseCourseFile" disabled="{{extracting || drafting || saving}}">上传截图</button>
+      <button class="secondary" data-kind="file" bindtap="chooseCourseFile" disabled="{{extracting || drafting || saving}}">选择聊天文件</button>
+    </view>
+    <view class="muted spaced" wx:if="{{extracting}}">正在本机后台识别，扫描PDF可能需要约一分钟…</view>
+    <view wx:if="{{courseFileName}}" class="muted spaced">{{courseFileName}}</view>
+    <view wx:for="{{courseNotes}}" wx:key="*this" class="notice">{{item}}</view>
+    <view wx:if="{{courseFileName}}">
+      <text class="field-label">核对识别文字（可修改）</text>
+      <textarea class="field area" value="{{courseText}}" maxlength="12000" bindinput="onCourseText" disabled="{{drafting || saving || extracting}}" />
+      <text class="field-label">学期与节次说明</text>
+      <textarea class="field area" value="{{courseContext}}" maxlength="1000" bindinput="onCourseContext" disabled="{{drafting || saving || extracting}}" placeholder="例如：第一周周一是2026-10-12，第1—2节08:30—10:00，本学期至2027-01-29。请按学校实际作息填写。" />
+      <view class="notice">没有节次时间或学期日期时会保留待补充草稿；单双周、离散周和调课暂不支持自动入库，请查看未导入说明。</view>
+      <button class="primary" bindtap="generateCourses" disabled="{{extracting || drafting || saving}}" loading="{{drafting}}">整理课程草稿</button>
+    </view>
+  </view>
   <view class="card" wx:if="{{draft}}">
     <view class="card-title">{{draft.status === 'READY' ? '待确认草稿' : '还需补充信息'}}</view>
     <view class="muted spaced">本次整理：{{draft.model}}</view>
@@ -71,7 +90,7 @@
   </view>
 
 
-  <view class="card" wx:if="{{batch.length}}">
+  <view class="card" wx:if="{{batch.length || batchNotes.length}}">
     <view class="card-title">核对安排 · {{batch.length}} 类</view>
     <view class="muted spaced">本次整理：{{batchModel}}。重复事项按规则保存，不会逐天列出。取消勾选可排除不需要的事项。</view>
     <view class="notice" wx:for="{{batchNotes}}" wx:key="*this">{{item}}</view>

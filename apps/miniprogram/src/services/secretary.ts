@@ -114,7 +114,7 @@ export async function logout() {
 function raw<T>(path: string, method: Method, data?: object, token?: string, requestId?: string): Promise<T> {
   return new Promise((resolve, reject) => {
     wx.request({
-      url: config.apiBase + path, method, data, timeout: path === '/me/secretary/drafts' ? 65000 : path === '/me/secretary/draft' ? 35000 : 10000,
+      url: config.apiBase + path, method, data, timeout: ['/me/secretary/drafts', '/me/secretary/course-drafts'].includes(path) ? 65000 : path === '/me/secretary/draft' ? 35000 : 10000,
       header: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(requestId ? { 'Idempotency-Key': requestId } : {}) },
       success(response) {
         if (response.statusCode >= 200 && response.statusCode < 300) resolve(response.data as T);
@@ -150,6 +150,27 @@ export async function draftFromText(text: string, previous: DraftFields | null =
 export interface BatchItem extends ScheduleDraft { repeatKind: string; weekdays: number[]; until: string | null; selected: boolean; saved: boolean; uncertain?: boolean; }
 export function draftsFromText(text: string) {
   return request<{ items: BatchItem[]; model: string; notes: string[] }>('/me/secretary/drafts', 'POST', { text });
+}
+
+export function courseDraftsFromText(text: string, context: string) {
+  return request<{ items: BatchItem[]; model: string; notes: string[] }>('/me/secretary/course-drafts', 'POST', { text, context });
+}
+export async function uploadCourseFile(path: string, name: string, size: number) {
+  if (config.mode !== 'api') throw new Error('课表文件识别需要连接后台，请使用A/B预览');
+  if (size > 4 * 1024 * 1024) throw new Error('文件请控制在4MB以内');
+  const token = await ensureSession();
+  return new Promise<{ text: string; notes: string[] }>((resolve, reject) => wx.uploadFile({
+    url: config.apiBase + '/me/secretary/course-file', filePath: path, name: 'file', timeout: 100000, formData: { filename: name },
+    header: { Authorization: `Bearer ${token}` },
+    success(response) {
+      try {
+        const result = JSON.parse(response.data);
+        if (response.statusCode >= 200 && response.statusCode < 300) resolve(result);
+        else reject(new Error(response.statusCode === 413 ? '文件过大，请控制在4MB以内' : result.message || '文件识别失败'));
+      } catch { reject(new Error('后台未返回有效识别结果，请重试')); }
+    },
+    fail() { reject(new Error('文件上传失败或识别超时，请检查后台与上传域名设置后重试')); },
+  }));
 }
 
 export async function listArrangements(from?: string, to?: string): Promise<Arrangement[]> {

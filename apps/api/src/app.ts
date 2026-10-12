@@ -2,10 +2,11 @@ import 'reflect-metadata';
 import {
   BadRequestException, Body, CanActivate, Controller, Delete, ExecutionContext,
   Get, HttpCode, Inject, Injectable, Module, NotFoundException, Param, Post, Put, Query, Req, Res,
-  ServiceUnavailableException, UnauthorizedException, UseGuards,
+  ServiceUnavailableException, UnauthorizedException, UseGuards, UseInterceptors, UploadedFile,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import { NestExpressApplication, FileInterceptor } from '@nestjs/platform-express';
+import { CourseFile, extractCourseFile, MAX_COURSE_FILE } from './course-files';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import {
   Arrangement, User, PersonalStore, STORE,
@@ -229,6 +230,20 @@ class PersonalController {
   removeMemory(@Req() request: AuthRequest, @Param('id') id: string) { return this.store.removeMemory(request.userId!, id); }
   // 第 13 步：把一句话整理成「待确认」草稿。这里只返回草稿，写入日程要走上面的保存接口。
   @Get('secretary/status') secretaryStatus() { return this.secretaryAccess.status(); }
+  @Post('secretary/course-file')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_COURSE_FILE, files: 1, fields: 1, parts: 3, fieldSize: 512 } }))
+  async courseFile(@Req() request: AuthRequest, @UploadedFile() file: CourseFile | undefined, @Body() body: { filename?: string }) {
+    if (file && typeof body?.filename === 'string') file.originalname = body.filename;
+    return this.secretaryAccess.run(request.userId!, () => extractCourseFile(file));
+  }
+  @Post('secretary/course-drafts')
+  async courseDrafts(@Req() request: AuthRequest, @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['text', 'context'].includes(key))) throw new BadRequestException('课表请求只接受text和context');
+    const input = body as { text?: unknown; context?: unknown };
+    const text = validateSecretaryText(input.text, 12000);
+    const context = input.context === '' || input.context === undefined ? '' : validateSecretaryText(input.context, 1000);
+    return this.secretaryAccess.run(request.userId!, () => this.secretary.drafts(`课表导入。用户补充：${context}\n文件识别文字（可能错字、错列）：\n${text}`, [], new Date(), true));
+  }
   @Post('secretary/drafts')
   async drafts(@Req() request: AuthRequest, @Body() body: unknown) {
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'text')) throw new BadRequestException('草稿请求只接受 text 字段');
@@ -336,6 +351,7 @@ export async function createApp(options: {
   })
   class AppModule {}
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false, abortOnError: false, bodyParser: false });
+  app.use('/me/secretary/course-drafts', require('express').json({ limit: '64kb' }));
   app.useBodyParser('json', { limit: '16kb' });
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().disable('x-powered-by');
