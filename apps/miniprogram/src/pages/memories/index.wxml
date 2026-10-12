@@ -1,4 +1,4 @@
-<feedback-toast message="{{error}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">PERSONAL MEMORY</text>
   <view class="title">记住你的习惯。</view>

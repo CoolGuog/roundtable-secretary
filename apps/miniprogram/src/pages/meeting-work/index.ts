@@ -4,6 +4,7 @@ import { MeetingWork, WorkTask, ActionCandidate, taskLabels, getMeetingWork, sav
   togglePreparation, addPreparationTemplate, saveMinutes, actionCandidates, importActions } from '../../services/meeting-work';
 const labels: Record<string, string> = { start: '开始执行', submit: '提交完成说明', accept: '记录验收通过', reopen: '重新打开任务' };
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: {
     id: '', local: isLocalRoomMode(), room: null as Room | null, work: null as MeetingWork | null,
     tab: 'tasks', tabs: [{ id: 'tasks', name: '补救任务' }, { id: 'prep', name: '会前清单' }, { id: 'minutes', name: '会议纪要' }],

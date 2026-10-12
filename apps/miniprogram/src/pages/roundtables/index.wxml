@@ -1,4 +1,4 @@
-<feedback-toast message="{{error}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">AROUND THE TABLE</text><view class="title">各有安排，<view>坐下来商量。</view></view>
   <view class="subtitle">发起一次活动，邀请两三位伙伴。</view><view class="muted spaced">{{mode}}</view>

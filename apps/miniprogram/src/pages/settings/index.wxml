@@ -1,4 +1,4 @@
-<feedback-toast message="{{error}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">YOUR SECRETARY</text><view class="title">由你掌握。</view>
   <view class="subtitle">当前版本 0.1 · {{mode}}</view>

@@ -6,6 +6,7 @@ import { validateDraft, findConflicts, conflictSignature } from '../../services/
 import { repeatRule, expandRepeat, RepeatSeries } from '../../services/repeat-engine';
 
 Page({
+  onFeedbackDismiss() { this.setData({ error: '', statusError: '' }); },
   data: {
     batch: [] as BatchItem[], batchNotes: [] as string[], batchModel: '', batchEdit: -1,
     mode: modeLabel(), count: 0, showForm: false, formSource: 'manual', saving: false, error: '',

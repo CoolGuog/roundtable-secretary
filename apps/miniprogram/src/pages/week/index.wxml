@@ -1,4 +1,4 @@
-<feedback-toast message="{{error || taskError}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error || taskError}}" />
 <view class="page">
   <text class="eyebrow">YOUR WEEK</text><view class="title">看见一周的安排。</view><view class="subtitle">{{mode}} · 周一至周日 · 北京时间</view>
   <view class="card"><picker class="week-date" mode="date" value="{{anchor}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">选择一周中的日期：{{anchor}} ▾</view></picker><view class="week-controls"><button class="secondary previous-week" bindtap="previous" disabled="{{!loaded || !canPrevious}}">上一周</button><button class="secondary current-week" bindtap="currentWeek">本周</button><button class="secondary next-week" bindtap="next" disabled="{{!loaded || !canNext}}">下一周</button></view><button class="secondary refresh-week" bindtap="reload" disabled="{{loading}}">{{loading ? '读取中…' : '刷新日程和任务'}}</button></view>

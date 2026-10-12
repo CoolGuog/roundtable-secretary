@@ -6,6 +6,7 @@ import { CalendarFilter, CalendarGroup, calendarFilters, calendarView } from '..
 const currentDay = () => new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
 const shiftDay = (date: string, offset: number) => new Date(Date.parse(date + 'T00:00:00Z') + offset * 86400000).toISOString().slice(0, 10);
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: {
     items: [] as Arrangement[], loading: false, error: '', mode: modeLabel(),
     editingId: '', editTitle: '', editDate: '', editStart: '', editEnd: '', saving: false, deletingId: '',

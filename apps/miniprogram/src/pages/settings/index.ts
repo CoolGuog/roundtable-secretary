@@ -1,5 +1,6 @@
 import { clearLocalDemo, modeLabel, loginEnabled, hasLogin, login, logout, errorMessage } from '../../services/secretary';
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: { mode: modeLabel(), loginEnabled: loginEnabled(), loggedIn: hasLogin(), busy: false, error: '' },
   onShow() { this.setData({ loggedIn: hasLogin() }); },
   openMemories() { wx.navigateTo({ url: '/pages/memories/index' }); },

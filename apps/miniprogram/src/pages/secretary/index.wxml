@@ -1,4 +1,4 @@
-<feedback-toast message="{{error || statusError}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error || statusError}}" />
 <template name="arrangement-form">
     <view class="card-title">{{formSource === 'manual' ? '记录个人安排' : '确认这条安排'}}</view>
     <text class="field-label">安排名称</text>

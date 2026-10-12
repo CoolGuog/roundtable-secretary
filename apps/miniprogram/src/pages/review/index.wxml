@@ -1,4 +1,4 @@
-<feedback-toast message="{{error}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">MEETING REVIEW</text><view class="title">把经过说清楚。</view>
   <view class="subtitle">记录会议未举办的原因，明确责任与下一步。</view>

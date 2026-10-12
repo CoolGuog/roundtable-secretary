@@ -1,4 +1,4 @@
-<feedback-toast message="{{error}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">MEETING WORKSPACE</text><view class="title">把下一步，做完。</view>
   <view class="subtitle">{{room.title || '会前准备、会议记录和会后行动'}} </view>

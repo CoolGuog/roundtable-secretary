@@ -1,4 +1,4 @@
-<feedback-toast message="{{error}}" />
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page compact-calendar">
   <view class="row calendar-header"><view class="card-title">我的日程</view><button class="link-button" bindtap="openWeek">周视图 →</button></view>
   <view class="card calendar-tools">

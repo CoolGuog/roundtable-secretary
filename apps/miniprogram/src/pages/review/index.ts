@@ -6,6 +6,7 @@ const decisions = { PENDING: '待表态', ACCEPT: '已确认', DISPUTE: '有异�
 type FormRow = { memberId: string; name: string; percent: string; reason: string; action: string };
 const integer = (value: string) => /^\d{1,3}$/.test(value) ? Number(value) : NaN;
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: {
     id: '', room: null as Room | null, view: null as ReviewView | null, local: isLocalRoomMode(),
     loading: false, busy: false, fresh: false, error: '', editor: false, showHistory: false,

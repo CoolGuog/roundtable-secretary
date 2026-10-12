@@ -2,6 +2,7 @@ import { Arrangement, listArrangements, errorMessage, today, modeLabel } from '.
 import { localTasksForStats, WorkTask } from '../../services/meeting-work';
 import { weeklyView, shiftDate, weekStart } from '../../services/week-view';
 Page({
+  onFeedbackDismiss() { this.setData({ error: '', taskError: '' }); },
   data: { mode: modeLabel(), anchor: today(), start: '', end: '', days: [] as object[], stats: {} as object,
     loading: false, loaded: false, error: '', taskError: '', taskStatsAvailable: false, canPrevious: true, canNext: true },
   _visible: false, _epoch: 0, _items: [] as Arrangement[], _tasks: null as WorkTask[] | null, _timer: null as number | null,
