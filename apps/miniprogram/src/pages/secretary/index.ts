@@ -4,10 +4,12 @@ import {
 import type { Arrangement } from '../../services/secretary';
 import { validateDraft, findConflicts, conflictSignature } from '../../services/arrangement-conflicts';
 import { repeatRule, expandRepeat, RepeatSeries } from '../../services/repeat-engine';
+import { summarizeCourses, CourseFailure } from '../../services/course-summary';
 
 Page({
   onFeedbackDismiss() { this.setData({ error: '', statusError: '' }); },
   data: {
+    courseBatch: false, recognizedCount: 0, courseFailures: [] as CourseFailure[], omittedCourses: [] as CourseFailure[],
     courseText: '', courseContext: '', courseFileName: '', courseNotes: [] as string[], extracting: false, courseImagePath: '', courseImageSize: 0,
     batch: [] as BatchItem[], batchNotes: [] as string[], batchModel: '', batchEdit: -1,
     mode: modeLabel(), count: 0, showForm: false, formSource: 'manual', saving: false, error: '',
@@ -88,7 +90,8 @@ Page({
         ? await courseDraftsFromImage(this.data.courseImagePath, this.data.courseFileName, this.data.courseImageSize, this.data.courseContext)
         : await courseDraftsFromText(this.data.courseText, this.data.courseContext);
       if (epoch !== this._draftEpoch) return;
-      this.setData({ batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null, showForm: false, batchEdit: -1,
+      const summary = summarizeCourses(result.items, result.unrecognized || []);
+      this.setData({ courseBatch: true, recognizedCount: summary.recognized, courseFailures: summary.failures, omittedCourses: result.unrecognized || [], batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null, showForm: false, batchEdit: -1,
         messages: [{ id: 0, role: 'secretary', text: `课表整理出${result.items.length}类草稿。请核对下方说明和每条课程，尚未写入日程。` }] });
     } catch (error) { if (epoch === this._draftEpoch) this.setData({ error: errorMessage(error) }); }
     finally { if (epoch === this._draftEpoch) this.setData({ drafting: false }); }
@@ -109,7 +112,7 @@ Page({
     if (this.data.saving) return;
     this._draftEpoch++;
     this.invalidateConflicts();
-    this.setData({ batch: [], batchNotes: [], batchEdit: -1, utterance: '', drafting: false, draft: null, draftMemoryNote: '', messages: [], turns: 0,
+    this.setData({ courseBatch: false, recognizedCount: 0, courseFailures: [], omittedCourses: [], batch: [], batchNotes: [], batchEdit: -1, utterance: '', drafting: false, draft: null, draftMemoryNote: '', messages: [], turns: 0,
       showForm: false, title: '', date: today(), startTime: '19:00', endTime: '20:00', error: '', repeatKind: 'once', repeatIndex: 0, repeatDays: [] });
   },
   sendReply() { return this.generate(true); },
@@ -166,7 +169,7 @@ Page({
     try {
       const result = await draftsFromText(text);
       if (epoch !== this._draftEpoch) return;
-      this.setData({ batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null,
+      this.setData({ courseBatch: false, courseFailures: [], omittedCourses: [], batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null,
         messages: [{ id: 0, role: 'user', text }, { id: 1, role: 'secretary', text: `整理出 ${result.items.length} 类安排。请逐条核对，补充重复起止日期；确认后才会写入。` }] });
     } catch (error) { if (epoch === this._draftEpoch) this.setData({ error: errorMessage(error) }); }
     finally { if (epoch === this._draftEpoch) this.setData({ drafting: false }); }
@@ -246,7 +249,11 @@ Page({
     if (this.data.formSource === 'batch' && this.data.batchEdit >= 0) {
       if (input.repeat && !input.repeat.until) { this.setData({ error: '请设置重复结束日期' }); return; }
       const index = this.data.batchEdit;
-      this.setData({ [`batch[${index}]`]: { ...this.data.batch[index], ...input, repeatKind: this.data.repeatKind, weekdays: this.data.repeatDays, until: input.repeat?.until || null, status: 'READY', missing: [] }, showForm: false, batchEdit: -1 });
+      this.setData({ [`batch[${index}]`]: { ...this.data.batch[index], ...input, repeatKind: this.data.repeatKind, weekdays: this.data.repeatDays, until: input.repeat?.until || null, status: 'READY', missing: [], recognitionIssue: '' }, showForm: false, batchEdit: -1 });
+      if (this.data.courseBatch) {
+        const summary = summarizeCourses(this.data.batch, this.data.omittedCourses);
+        this.setData({ recognizedCount: summary.recognized, courseFailures: summary.failures });
+      }
       return;
     }
     const epoch = ++this._checkEpoch;

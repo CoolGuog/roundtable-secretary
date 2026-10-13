@@ -147,19 +147,19 @@ export async function draftFromText(text: string, previous: DraftFields | null =
   return request<ScheduleDraft>('/me/secretary/draft', 'POST', { text: value });
 }
 
-export interface BatchItem extends ScheduleDraft { repeatKind: string; weekdays: number[]; until: string | null; selected: boolean; saved: boolean; uncertain?: boolean; }
+export interface BatchItem extends ScheduleDraft { repeatKind: string; weekdays: number[]; until: string | null; selected: boolean; saved: boolean; uncertain?: boolean; recognitionIssue?: string; }
 export function draftsFromText(text: string) {
   return request<{ items: BatchItem[]; model: string; notes: string[] }>('/me/secretary/drafts', 'POST', { text });
 }
 
 export function courseDraftsFromText(text: string, context: string) {
-  return request<{ items: BatchItem[]; model: string; notes: string[] }>('/me/secretary/course-drafts', 'POST', { text, context });
+  return request<{ items: BatchItem[]; model: string; notes: string[]; unrecognized?: Array<{ title: string; reason: string }> }>('/me/secretary/course-drafts', 'POST', { text, context });
 }
 export function uploadCourseFile(path: string, name: string, size: number) {
   return uploadCourse<{ text: string; notes: string[] }>(path, name, size);
 }
 export function courseDraftsFromImage(path: string, name: string, size: number, context: string) {
-  return uploadCourse<{ items: BatchItem[]; model: string; notes: string[] }>(path, name, size, context);
+  return uploadCourse<{ items: BatchItem[]; model: string; notes: string[]; unrecognized?: Array<{ title: string; reason: string }> }>(path, name, size, context);
 }
 async function uploadCourse<T>(path: string, name: string, size: number, context?: string) {
   if (config.mode !== 'api') throw new Error('课表文件识别需要连接后台，请使用A/B预览');

@@ -25,3 +25,6 @@
 .repeat-weekdays label { display: flex; align-items: center; }
 
 .batch-item { padding: 24rpx 0; border-bottom: 1rpx solid #e6ebe5; }
+.batch-heading { align-items: flex-start; gap: 16rpx; }
+.batch-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.batch-status { flex: 0 0 90rpx; width: 90rpx; height: 42rpx; line-height: 42rpx; padding: 0; box-sizing: border-box; text-align: center; white-space: nowrap; }
