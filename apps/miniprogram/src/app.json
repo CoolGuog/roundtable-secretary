@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/secretary/index",
+    "pages/agents/index",
     "pages/roundtables/index",
     "pages/calendar/index",
     "pages/settings/index",

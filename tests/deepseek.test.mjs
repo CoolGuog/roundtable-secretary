@@ -12,6 +12,15 @@ const fields = { title: '课程讨论', date: tomorrow, startTime: '15:00', endT
 const response = (content = JSON.stringify(fields), finish_reason = 'stop') => new Response(JSON.stringify({ choices: [{ finish_reason, message: { content } }] }));
 const model = fetcher => new HttpModel({ baseUrl: 'https://api.deepseek.com', apiKey: secret, model: 'deepseek-flash', fetcher });
 
+test('Agent模型接收工具结果与公开反馈，返回动作且拒绝未知工具',async()=>{
+  let sent;
+  const agent={candidates:[{date:tomorrow,startTime:'15:00',endTime:'16:00'}],offer:0,tools:{read_busy:[true],read_preferences:[]}};
+  const result=await model(async(_url,options)=>{sent=JSON.parse(options.body);return response(JSON.stringify({action:'answer',choice:0,decision:'accept'}));}).complete({text:'',today:tomorrow,memories:[],agent});
+  assert.equal(result.choice,0);assert.deepEqual(JSON.parse(sent.messages[1].content),agent);
+  assert.match(sent.messages[0].content,/true表示可用/);assert.match(sent.messages[0].content,/不得重复调用/);
+  await assert.rejects(()=>model(async()=>response('{"action":"delete_schedule"}')).complete({text:'',today:tomorrow,memories:[],agent}),/有效工具动作/);
+});
+
 test('DeepSeek 请求使用官方地址、JSON 与非思考模式；限制偏好数量且不传内部标识', async () => {
   let body;
   const m = model(async (url, options) => {

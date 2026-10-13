@@ -8,6 +8,7 @@ const withKeys = (proposal: Proposal): PageProposal => ({ ...proposal,
   votes: proposal.votes.map((vote, index) => ({ ...vote, key: `${index}-${vote.name}` })) });
 const denied = (error: unknown) => error instanceof RequestError && [401, 403, 404].includes(error.statusCode);
 Page({
+  openAgents() { if (!this.data.local) wx.navigateTo({ url: `/pages/agents/index?id=${encodeURIComponent(this.data.id)}` }); },
   data: {
     id: '', room: null as Room | null, loading: false, busy: false, error: '', local: isLocalRoomMode(), shareBusy: false, expiresLabel: '',
     availability: null as Availability | null, proposal: null as PageProposal | null, finding: false,

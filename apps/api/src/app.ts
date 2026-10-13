@@ -28,6 +28,7 @@ import { arrangementFingerprint, assertReplay, requestKey } from './arrangement-
 import { READINESS, Readiness } from './readiness';
 import { assertProductionConfig } from './production';
 import { LOGIN_ACCESS, LoginAccess } from './login-access';
+import { AGENT_NEGOTIATION, AgentNegotiation } from './agent-negotiation';
 
 type AuthRequest = {
   headers: { authorization?: string; 'idempotency-key'?: string }; userId?: string;
@@ -273,7 +274,10 @@ class PersonalController {
 @Controller('roundtables')
 @UseGuards(SessionGuard)
 class RoundtableController {
-  constructor(@Inject(STORE) private readonly store: PersonalStore) {}
+  constructor(@Inject(STORE) private readonly store: PersonalStore, @Inject(AGENT_NEGOTIATION) private readonly agents: AgentNegotiation) {}
+  @Get(':id/agents') agentStatus(@Req() req: AuthRequest, @Param('id') id: string) { return this.agents.status(req.userId!,id); }
+  @Put(':id/agents/consent') agentConsent(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.agents.consent(req.userId!,id,body); }
+  @Post(':id/agents/start') startAgents(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.agents.start(req.userId!,id,body); }
   @Get(':id/review') review(@Req() req: AuthRequest, @Param('id') id: string) { return this.store.reviews.get(req.userId!, id); }
   @Put(':id/review') editReview(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.store.reviews.edit(req.userId!, id, body); }
   @Put(':id/review/vote') voteReview(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.store.reviews.vote(req.userId!, id, body); }
@@ -355,6 +359,7 @@ export async function createApp(options: {
     providers: [
       { provide: STORE, useValue: store }, { provide: AUTH, useValue: auth },
       { provide: SECRETARY, useValue: secretary }, { provide: SECRETARY_ACCESS, useValue: secretaryAccess }, SessionGuard,
+      { provide: AGENT_NEGOTIATION, useValue: new AgentNegotiation(store, secretaryMode === 'http' ? secretaryModel : null) },
       { provide: READINESS, useValue: new Readiness(() => store.checkReady()) },
       { provide: LOGIN_ACCESS, useValue: new LoginAccess() },
     ],
