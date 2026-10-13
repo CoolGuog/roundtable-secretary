@@ -155,12 +155,18 @@ export function draftsFromText(text: string) {
 export function courseDraftsFromText(text: string, context: string) {
   return request<{ items: BatchItem[]; model: string; notes: string[] }>('/me/secretary/course-drafts', 'POST', { text, context });
 }
-export async function uploadCourseFile(path: string, name: string, size: number) {
+export function uploadCourseFile(path: string, name: string, size: number) {
+  return uploadCourse<{ text: string; notes: string[] }>(path, name, size);
+}
+export function courseDraftsFromImage(path: string, name: string, size: number, context: string) {
+  return uploadCourse<{ items: BatchItem[]; model: string; notes: string[] }>(path, name, size, context);
+}
+async function uploadCourse<T>(path: string, name: string, size: number, context?: string) {
   if (config.mode !== 'api') throw new Error('课表文件识别需要连接后台，请使用A/B预览');
   if (size > 4 * 1024 * 1024) throw new Error('文件请控制在4MB以内');
   const token = await ensureSession();
-  return new Promise<{ text: string; notes: string[] }>((resolve, reject) => wx.uploadFile({
-    url: config.apiBase + '/me/secretary/course-file', filePath: path, name: 'file', timeout: 100000, formData: { filename: name },
+  return new Promise<T>((resolve, reject) => wx.uploadFile({
+    url: config.apiBase + (context === undefined ? '/me/secretary/course-file' : '/me/secretary/course-image'), filePath: path, name: 'file', timeout: 110000, formData: { filename: name, ...(context === undefined ? {} : { context }) },
     header: { Authorization: `Bearer ${token}` },
     success(response) {
       try {

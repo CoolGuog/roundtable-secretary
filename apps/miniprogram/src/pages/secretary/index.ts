@@ -1,5 +1,5 @@
 import {
-  today, modeLabel, listArrangements, saveArrangement, draftFromText, draftsFromText, courseDraftsFromText, uploadCourseFile, BatchItem, errorMessage, ScheduleDraft, loadSecretaryStatus, SecretaryStatus, RequestError,
+  today, modeLabel, listArrangements, saveArrangement, draftFromText, draftsFromText, courseDraftsFromText, courseDraftsFromImage, uploadCourseFile, BatchItem, errorMessage, ScheduleDraft, loadSecretaryStatus, SecretaryStatus, RequestError,
 } from '../../services/secretary';
 import type { Arrangement } from '../../services/secretary';
 import { validateDraft, findConflicts, conflictSignature } from '../../services/arrangement-conflicts';
@@ -8,7 +8,7 @@ import { repeatRule, expandRepeat, RepeatSeries } from '../../services/repeat-en
 Page({
   onFeedbackDismiss() { this.setData({ error: '', statusError: '' }); },
   data: {
-    courseText: '', courseContext: '', courseFileName: '', courseNotes: [] as string[], extracting: false,
+    courseText: '', courseContext: '', courseFileName: '', courseNotes: [] as string[], extracting: false, courseImagePath: '', courseImageSize: 0,
     batch: [] as BatchItem[], batchNotes: [] as string[], batchModel: '', batchEdit: -1,
     mode: modeLabel(), count: 0, showForm: false, formSource: 'manual', saving: false, error: '',
     title: '', date: today(), startTime: '19:00', endTime: '20:00',
@@ -49,22 +49,27 @@ Page({
   onCourseContext(event: WechatMiniprogram.Input) { this.setData({ courseContext: event.detail.value }); },
   async chooseCourseFile(event: WechatMiniprogram.TouchEvent) {
     if (this.data.extracting || this.data.drafting || this.data.saving) return;
-    const consent = await wx.showModal({ title: '识别课表文件', content: '原文件发送到本机后台识别，不保存到数据库；你核对文字并点击整理后才会将文字发给模型。请先裁剪学号等无关信息。' });
+    const consent = await wx.showModal({ title: '选择课表文件', content: '图片先在本机预览，确认整理时原图会发送给模型；PDF和表格先在后台提取文字。文件不保存到数据库，请先裁剪学号等无关信息。' });
     if (!consent.confirm || this._disposed) return;
     try {
       let path: string, name: string, size: number;
       if (event.currentTarget.dataset.kind === 'image') {
-        const result = await wx.chooseMedia({ count: 1, mediaType: ['image'], sourceType: ['album', 'camera'], sizeType: ['compressed'] });
+        const result = await wx.chooseMedia({ count: 1, mediaType: ['image'], sourceType: ['album', 'camera'], sizeType: ['original'] });
         path = result.tempFiles[0].tempFilePath; size = result.tempFiles[0].size; name = path.split('/').pop() || '课表截图.jpg';
       } else {
         const result = await wx.chooseMessageFile({ count: 1, type: 'file', extension: ['pdf', 'xlsx', 'csv', 'png', 'jpg', 'jpeg'] });
         path = result.tempFiles[0].path; name = result.tempFiles[0].name; size = result.tempFiles[0].size;
       }
+      if (size > 4 * 1024 * 1024) throw new Error('文件请控制在4MB以内；保留课程区域可缩小图片');
+      if (event.currentTarget.dataset.kind === 'image' || /\.(png|jpe?g)$/i.test(name)) {
+        this.setData({ courseImagePath: path, courseImageSize: size, courseFileName: name, courseText: '', courseNotes: ['直接看图模式：保留星期、节次和跨格课程结构；点击整理后才上传原图。'], error: '' });
+        return;
+      }
       const epoch = ++this._draftEpoch;
       this.setData({ extracting: true, error: '' });
       try {
         const result = await uploadCourseFile(path, name, size);
-        if (epoch === this._draftEpoch) this.setData({ courseText: result.text, courseNotes: result.notes, courseFileName: name });
+        if (epoch === this._draftEpoch) this.setData({ courseText: result.text, courseNotes: result.notes, courseFileName: name, courseImagePath: '', courseImageSize: 0 });
       } finally { if (!this._disposed) this.setData({ extracting: false }); }
     } catch (error) {
       const message = (error as { errMsg?: string })?.errMsg || errorMessage(error);
@@ -73,13 +78,15 @@ Page({
   },
   async generateCourses() {
     if (this.data.extracting || this.data.drafting || this.data.saving) return;
-    if (!this.data.courseText.trim()) { this.setData({ error: '请先上传并核对课表文字' }); return; }
-    const confirm = await wx.showModal({ title: '整理课程草稿', content: '将核对后的课表文字与补充说明发给已配置模型。现有未保存草稿将被替换。单双周、调课等暂不支持自动入库，需核对未导入说明。' });
+    if (!this.data.courseImagePath && !this.data.courseText.trim()) { this.setData({ error: '请先选择课表图片或上传并核对课表文字' }); return; }
+    const confirm = await wx.showModal({ title: '整理课程草稿', content: (this.data.courseImagePath ? '将课表原图和补充说明发送给已配置模型，产生图片调用费用。' : '将核对后的课表文字与补充说明发给已配置模型。') + '现有未保存草稿将被替换。结果仍需逐条核对并确认后保存。' });
     if (!confirm.confirm || this._disposed) return;
     const epoch = ++this._draftEpoch;
     this.setData({ drafting: true, error: '' });
     try {
-      const result = await courseDraftsFromText(this.data.courseText, this.data.courseContext);
+      const result = this.data.courseImagePath
+        ? await courseDraftsFromImage(this.data.courseImagePath, this.data.courseFileName, this.data.courseImageSize, this.data.courseContext)
+        : await courseDraftsFromText(this.data.courseText, this.data.courseContext);
       if (epoch !== this._draftEpoch) return;
       this.setData({ batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null, showForm: false, batchEdit: -1,
         messages: [{ id: 0, role: 'secretary', text: `课表整理出${result.items.length}类草稿。请核对下方说明和每条课程，尚未写入日程。` }] });

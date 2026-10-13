@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication, FileInterceptor } from '@nestjs/platform-express';
-import { CourseFile, extractCourseFile, MAX_COURSE_FILE } from './course-files';
+import { CourseFile, extractCourseFile, validateCourseFile, MAX_COURSE_FILE } from './course-files';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import {
   Arrangement, User, PersonalStore, STORE,
@@ -235,6 +235,16 @@ class PersonalController {
   async courseFile(@Req() request: AuthRequest, @UploadedFile() file: CourseFile | undefined, @Body() body: { filename?: string }) {
     if (file && typeof body?.filename === 'string') file.originalname = body.filename;
     return this.secretaryAccess.run(request.userId!, () => extractCourseFile(file));
+  }
+  @Post('secretary/course-image')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_COURSE_FILE, files: 1, fields: 2, parts: 4, fieldSize: 4096 } }))
+  async courseImage(@Req() request: AuthRequest, @UploadedFile() file: CourseFile | undefined, @Body() body: { filename?: string; context?: string }) {
+    if (file && typeof body?.filename === 'string') file.originalname = body.filename;
+    const extension = validateCourseFile(file);
+    if (!['png','jpg','jpeg'].includes(extension)) throw new BadRequestException('直接看图只支持PNG/JPG，请选择课表截图');
+    const context = body?.context === undefined || body.context === '' ? '' : validateSecretaryText(body.context, 1000);
+    return this.secretaryAccess.run(request.userId!, () => this.secretary.drafts(`直接查看课表原图并按课程色块整理。用户补充：${context}`, [], new Date(), true,
+      `data:image/${extension === 'png' ? 'png' : 'jpeg'};base64,${file!.buffer.toString('base64')}`));
   }
   @Post('secretary/course-drafts')
   async courseDrafts(@Req() request: AuthRequest, @Body() body: unknown) {
