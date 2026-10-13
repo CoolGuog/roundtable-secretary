@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PersonalStore, inputObject } from './store';
-import { SecretaryModel } from './secretary';
+import { SecretaryModel, ModelRequestError } from './secretary';
 import { Room } from './rooms';
 import { Slot } from './negotiation';
 import { beijingDate, beijingInstant } from './time';
@@ -9,6 +9,7 @@ import { beijingDate, beijingInstant } from './time';
 export const AGENT_NEGOTIATION = Symbol('agent-negotiation');
 type Consent = { userId: string; memberId: string; expires: number; busyStamp: string | null };
 type Event = { speaker: string; text: string; round: number };
+class AgentFlowError extends Error {}
 type Run = { id: string; version: number; created: number; status: 'RUNNING'|'READY'|'NO_AGREEMENT'|'FAILED'; events: Event[]; message: string; slot?: Slot; proposalId?: string };
 const keys = (value: unknown, expected: string[]) => { const body = inputObject(value); if (Object.keys(body).some(key => !expected.includes(key))) throw new BadRequestException('不支持额外字段'); return body; };
 
@@ -66,7 +67,12 @@ export class AgentNegotiation {
     if (this.active >= 2) throw new HttpException('秘书协商繁忙，请稍后重试',429);
     const run: Run = { id: randomUUID(), version: room.version, created: Date.now(), status:'RUNNING', events:[], message:'两位秘书正在协商，尚未写入日程' };
     this.runs.set(roomId,run); this.active++;
-    void this.execute(userId,room,run).catch(() => { run.status='FAILED';run.message='协商未完成：可能是模型不可用、授权变化或日程冲突。没有自动写入日程，请刷新圆桌后重试。'; }).finally(()=>this.active--);
+    void this.execute(userId,room,run).catch(error => {
+      if(run.status !== 'RUNNING')return;
+      run.status='FAILED';
+      const reason=error instanceof AgentFlowError ? error.message : error instanceof ModelRequestError ? ({TIMEOUT:'模型响应超时',AUTH:'后台模型密钥无效或无权限',BALANCE:'模型账户余额不足',RATE_LIMIT:'模型请求过于频繁',FORMAT:'模型未返回有效的协商动作',NETWORK:'后台暂时无法连接模型'}[error.code] || '模型服务暂时不可用') : '授权、圆桌或日程发生变化，或后台处理失败';
+      run.message=`${reason}。没有自动写入日程，请重试或手动选时。`;
+    }).finally(()=>this.active--);
     return this.status(userId,roomId);
   }
   private candidates(room: Room) {
@@ -97,12 +103,16 @@ export class AgentNegotiation {
         await this.check(userId,room.id,run);
         const member=room.members[memberIndex], consent=this.authorized(room,member.id)!;
         const speaker=`${member.name}的秘书`, tools: Record<string,unknown>={};
-        let selected: number|null=null, answered=false;
+        let selected: number|null=null, answered=false, feedback='';
         for(let step=0;step<4;step++) {
           await this.check(userId,room.id,run);
-          const action=await this.model!.complete({text:'',today:beijingDate(new Date()),memories:[],agent:{ goal:room.goal, round, candidates:slots, offer, previousFeedback:histories[1-memberIndex].slice(-1), ownHistory:histories[memberIndex], tools }});
+          const action=await this.model!.complete({text:'',today:beijingDate(new Date()),memories:[],agent:{ goal:room.goal, round, candidates:slots, offer, previousFeedback:histories[1-memberIndex].slice(-1), ownHistory:histories[memberIndex], tools, feedback }});
           await this.check(userId,room.id,run);
           if(!action)throw new Error('无工具动作');
+          if((action.action==='read_busy'||action.action==='read_preferences') && Object.hasOwn(tools,action.action)) {
+            feedback='该工具已经读取，结果在tools中（空数组也是有效结果）。不要重复调用；两个工具齐全时立即返回answer。';
+            continue;
+          }
           if(action.action==='read_busy') {
             tools.read_busy=await this.busy(consent,room,slots);
             run.events.push({speaker,round,text:'调用忙闲工具，检查主人在候选时段是否有安排'});
@@ -117,7 +127,7 @@ export class AgentNegotiation {
             selected=Number(action.choice);answered=true;break;
           } else throw new Error('不允许的工具');
         }
-        if(!answered)throw new Error('工具轮数达到上限');
+        if(!answered)throw new AgentFlowError('秘书重复读取工具或未在规定步骤内提出时间，已停止以避免继续消耗模型用量');
         histories[memberIndex].push({choice:selected,decision:selected===null?'decline':selected===offer?'accept':'counter'});
         if(selected===null){run.events.push({speaker,round,text:'未找到满足主人安排的候选，交给主人处理'});run.status='NO_AGREEMENT';run.message='秘书未达成一致，请调整范围或手动选时间';return;}
         const slot=slots[selected];

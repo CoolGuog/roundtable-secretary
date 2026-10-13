@@ -29,6 +29,23 @@ async function setup(behavior) {
   return {app,call,a,b,c,root,day,requests,authorize,wait};
 }
 const answer=(a,choice)=>({action:'answer',choice,decision:choice===a.offer?'accept':'counter'});
+
+test('重复工具复用结果且提示模型继续决策；持续重复显示明确失败原因',async()=>{
+  const recovered=await setup(a=>a.feedback?answer(a,0):{action:'read_preferences'});
+  try{
+    await recovered.authorize();await recovered.call(recovered.root+'/agents/start',recovered.a,{});
+    const state=await recovered.wait();assert.equal(state.run.status,'READY');
+    assert.equal(state.run.events.filter(e=>e.text.includes('调用个人偏好')).length,2);
+    assert.equal(recovered.requests.length,8);
+  }finally{await recovered.app.close();}
+  const stuck=await setup(()=>({action:'read_preferences'}));
+  try{
+    await stuck.authorize();await stuck.call(stuck.root+'/agents/start',stuck.a,{});
+    const state=await stuck.wait();assert.equal(state.run.status,'FAILED');assert.match(state.run.message,/重复读取工具/);
+    assert.equal(state.run.events.filter(e=>e.text.includes('调用个人偏好')).length,1);
+    assert.equal((await stuck.call(stuck.root+'/proposal',stuck.a)).status,204);
+  }finally{await stuck.app.close();}
+});
 test('两位Agent调用工具并根据对方反馈调整；私有数据隔离且全员确认才入库',async()=>{
   const s=await setup(a=>answer(a,a.tools.read_preferences.some(p=>p.content==='B_PRIVATE')?1:(a.offer??0)));
   try{

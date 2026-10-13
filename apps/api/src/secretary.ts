@@ -415,6 +415,8 @@ export class HttpModel implements SecretaryModel {
   async complete(request: ModelRequest): Promise<Record<string, unknown> | null> {
     const fetcher = this.options.fetcher ?? fetch;
     const deepseek = new URL(this.options.baseUrl).hostname === 'api.deepseek.com';
+    const agentTools = request.agent?.tools as Record<string, unknown> | undefined;
+    const agentStep = !agentTools || !Object.hasOwn(agentTools,'read_busy') ? '本次只返回 {"action":"read_busy"}。' : !Object.hasOwn(agentTools,'read_preferences') ? '忙闲已读取。本次只返回 {"action":"read_preferences"}。' : '两个工具均已读取完成，即使偏好为空也不需要再次读取。本次只能返回 {"action":"answer","choice":整数索引或null,"decision":"accept或counter或decline"}。禁止返回read_busy或read_preferences。';
     try {
       const response = await fetcher(`${this.options.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
@@ -422,7 +424,7 @@ export class HttpModel implements SecretaryModel {
         body: JSON.stringify({
           model: this.options.model, temperature: 0,
           ...(deepseek ? { response_format: { type: 'json_object' }, thinking: { type: 'disabled' }, max_tokens: request.batch ? 5000 : 800, stream: false } : {}),
-          messages: [{ role: 'system', content: request.agent ? AGENT_PROMPT : request.batch ? BATCH_PROMPT + (request.courses ? '\n' + COURSE_PROMPT : '') + (request.image ? '\n' + VISION_COURSE_PROMPT : '') : SYSTEM_PROMPT }, { role: 'user', content: request.agent ? JSON.stringify(request.agent) : request.image ? [{ type: 'text', text: buildPrompt(request) }, { type: 'image_url', image_url: { url: request.image } }] : buildPrompt(request) }],
+          messages: [{ role: 'system', content: request.agent ? AGENT_PROMPT + '\n当前执行阶段：' + agentStep : request.batch ? BATCH_PROMPT + (request.courses ? '\n' + COURSE_PROMPT : '') + (request.image ? '\n' + VISION_COURSE_PROMPT : '') : SYSTEM_PROMPT }, { role: 'user', content: request.agent ? JSON.stringify(request.agent) : request.image ? [{ type: 'text', text: buildPrompt(request) }, { type: 'image_url', image_url: { url: request.image } }] : buildPrompt(request) }],
         }),
         signal: AbortSignal.timeout(this.options.timeoutMs ?? (request.image ? 90000 : request.batch ? 55000 : deepseek ? 25000 : MODEL_TIMEOUT_MS)),
         redirect: 'error',
