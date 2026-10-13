@@ -47,7 +47,7 @@ export class AgentNegotiation {
   }
   private async check(userId: string, roomId: string, run: Run) {
     const room = await this.store.rooms.get(userId, roomId);
-    if (run.status !== 'RUNNING' || Date.now()-run.created > 240000 || room.status !== 'OPEN' || room.version !== run.version || !room.members.every(member => this.authorized(room, member.id))) throw new Error('授权或圆桌已变化');
+    if (run.status !== 'RUNNING' || Date.now()-run.created > 360000 || room.status !== 'OPEN' || room.version !== run.version || !room.members.every(member => this.authorized(room, member.id))) throw new Error('授权或圆桌已变化');
     return room;
   }
   async start(userId: string, roomId: string, value: unknown) {
@@ -85,8 +85,8 @@ export class AgentNegotiation {
         if(beijingInstant(date,clock(t)).getTime()>Date.now()) slots.push({date,startTime:clock(t),endTime:clock(t+room.durationMinutes)});
       }
     }
-    if(slots.length<=72)return slots;
-    return Array.from({length:72},(_,index)=>slots[Math.floor(index*(slots.length-1)/71)]);
+    if(slots.length<=216)return slots;
+    return Array.from({length:216},(_,index)=>slots[Math.floor(index*(slots.length-1)/215)]);
   }
   private async busy(consent: Consent, room: Room, slots: Slot[]) {
     const items=await this.store.list(consent.userId,room.dateFrom,room.dateTo);
@@ -97,16 +97,16 @@ export class AgentNegotiation {
     if(!slots.length){run.status='NO_AGREEMENT';run.message='没有可供协商的未来时段，请修改圆桌范围';return;}
     let offer: number|null=null;
     const histories: Array<Array<Record<string,unknown>>> = [[],[]];
-    for(let round=1;round<=3;round++) {
+    for(let round=1;round<=5;round++) {
       let first: number|null=null;
       for(let memberIndex=0;memberIndex<2;memberIndex++) {
         await this.check(userId,room.id,run);
         const member=room.members[memberIndex], consent=this.authorized(room,member.id)!;
         const speaker=`${member.name}的秘书`, tools: Record<string,unknown>={};
         let selected: number|null=null, answered=false, feedback='';
-        for(let step=0;step<4;step++) {
+        for(let step=0;step<5;step++) {
           await this.check(userId,room.id,run);
-          const action=await this.model!.complete({text:'',today:beijingDate(new Date()),memories:[],agent:{ goal:room.goal, round, candidates:slots, offer, previousFeedback:histories[1-memberIndex].slice(-1), ownHistory:histories[memberIndex], tools, feedback }});
+          const action=await this.model!.complete({text:'',today:beijingDate(new Date()),memories:[],agent:{ title:room.title, goal:room.goal, round, maxRounds:5, candidates:slots.map((slot,index)=>({...slot,index,weekday:['周日','周一','周二','周三','周四','周五','周六'][new Date(slot.date+'T00:00:00Z').getUTCDay()]})), offer, previousFeedback:histories[1-memberIndex].slice(-1), ownHistory:histories[memberIndex], tools, feedback }});
           await this.check(userId,room.id,run);
           if(!action)throw new Error('无工具动作');
           if((action.action==='read_busy'||action.action==='read_preferences') && Object.hasOwn(tools,action.action)) {
@@ -121,15 +121,23 @@ export class AgentNegotiation {
             run.events.push({speaker,round,text:'调用个人偏好工具，结果仅供本人的秘书使用'});
           } else if(action.action==='answer') {
             if(!tools.read_busy || !tools.read_preferences || !['accept','counter','decline'].includes(String(action.decision)))throw new Error('缺少工具结果');
-            if(action.decision==='decline' && action.choice===null) {answered=true;break;}
-            if(!Number.isInteger(action.choice) || Number(action.choice)<0 || Number(action.choice)>=slots.length || !(tools.read_busy as boolean[])[Number(action.choice)])throw new Error('不允许选择冲突时段');
-            if(action.decision==='accept' && action.choice!==offer)throw new Error('不能接受其他时段');
+            if(action.decision==='decline' && action.choice===null) {
+              if((tools.read_busy as boolean[]).some(Boolean) && action.reason!=='hard_constraint') {
+                feedback='工具表明仍有空闲候选。请按活动性质与偏好比较所有日期，尽量/优先是软偏好，先找更符合偏好的替代时间。仅当全部空闲候选违反主人明确的不可妥协限制时才decline并返回reason:"hard_constraint"；否则选最符合偏好的可用时段。';
+                continue;
+              }
+              answered=true;break;
+            }
+            if(!Number.isInteger(action.choice) || Number(action.choice)<0 || Number(action.choice)>=slots.length || !(tools.read_busy as boolean[])[Number(action.choice)] || (action.decision==='accept' && action.choice!==offer) || action.decision==='decline') {
+              feedback='刚才的回答无效：accept/counter的choice必须是候选index整数且read_busy[index]为true。offer为null表示没有提议，必须counter一个具体时段，不能accept null。accept只能接受当前非空offer。请重新选择符合偏好的可用时段。';
+              continue;
+            }
             selected=Number(action.choice);answered=true;break;
           } else throw new Error('不允许的工具');
         }
-        if(!answered)throw new AgentFlowError('秘书重复读取工具或未在规定步骤内提出时间，已停止以避免继续消耗模型用量');
+        if(!answered)throw new AgentFlowError('秘书重复读取工具或在仍有空闲候选时未提出时间，已停止以避免继续消耗模型用量');
         histories[memberIndex].push({choice:selected,decision:selected===null?'decline':selected===offer?'accept':'counter'});
-        if(selected===null){run.events.push({speaker,round,text:'未找到满足主人安排的候选，交给主人处理'});run.status='NO_AGREEMENT';run.message='秘书未达成一致，请调整范围或手动选时间';return;}
+        if(selected===null){run.events.push({speaker,round,text:'当前候选均忙碌，或秘书判断有不可妥协的限制，需主人核对'});run.status='NO_AGREEMENT';run.message=`在 ${room.dateFrom} 至 ${room.dateTo} 的候选中未找到满足安排和明确限制的时间。请核对偏好、扩大日期范围或手动选时；不会自动超出授权范围。`;return;}
         const slot=slots[selected];
         run.events.push({speaker,round,text:`${selected===offer?'同意':'建议'} ${slot.date} ${slot.startTime}—${slot.endTime}`});
         if(memberIndex===0)first=selected;
@@ -143,6 +151,6 @@ export class AgentNegotiation {
         }
       }
     }
-    run.status='NO_AGREEMENT';run.message='3轮协商仍未达成一致，请主人调整范围或手动选时间';
+    run.status='NO_AGREEMENT';run.message='5轮协商仍未达成一致，请主人调整范围或手动选时间';
   }
 }

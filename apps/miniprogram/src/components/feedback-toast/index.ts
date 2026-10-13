@@ -11,25 +11,26 @@ Component({
       if (hide) this.setData({ visible: false });
     },
     display(message: string) {
-      this.clear();
       if (!message) return;
-      this._remaining = 5;
-      this.setData({ text: message });
-      this.flash();
-    },
-    flash() {
-      this.setData({ visible: true });
+      const now = Date.now();
+      // 立即清空页面绑定，下一次相同操作也能触发；浮窗使用独立text显示。
+      this.triggerEvent('dismiss');
+      if (now < Number(this._cooldownUntil || 0)) return;
+      if (now - Number(this._lastShown || 0) >= 30000 || this._cooldownUntil) {
+        this._count = 0; this._cooldownUntil = 0;
+      }
+      this._lastShown = now;
+      this._count = Number(this._count || 0) + 1;
+      if (this._count >= 5) this._cooldownUntil = now + 30000;
+      this.clear();
+      this.setData({ text: message, visible: true });
       this._timer = setTimeout(() => {
         this._timer = undefined;
         this.setData({ visible: false });
-        this._remaining = Number(this._remaining) - 1;
-        if (Number(this._remaining) > 0) this._timer = setTimeout(() => { this._timer = undefined; this.flash(); }, 500);
-        else this.dismiss();
       }, 1000);
     },
     dismiss() {
       this.clear();
-      this._remaining = 0;
       this.triggerEvent('dismiss');
     },
   },

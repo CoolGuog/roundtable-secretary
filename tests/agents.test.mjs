@@ -30,6 +30,22 @@ async function setup(behavior) {
 }
 const answer=(a,choice)=>({action:'answer',choice,decision:choice===a.offer?'accept':'counter'});
 
+test('接受空提议会获得纠正机会且不会跳过主人确认',async()=>{
+  const s=await setup(a=>a.offer===null&&!a.feedback?{action:'answer',choice:null,decision:'accept'}:answer(a,0));
+  try{await s.authorize();await s.call(s.root+'/agents/start',s.a,{});assert.equal((await s.wait()).run.status,'READY');assert.ok(s.requests.some(r=>r.agent.feedback.includes('不能accept null')));assert.deepEqual((await s.call('/me/arrangements',s.a)).data,[]);}finally{await s.app.close();}
+});
+
+test('有空闲时软偏好拒绝获得一次纠正；明确硬限制可退出而不写入',async()=>{
+  const s=await setup(a=>a.feedback?answer(a,0):{action:'answer',choice:null,decision:'decline'});
+  try{
+    await s.authorize();await s.call(s.root+'/agents/start',s.a,{});assert.equal((await s.wait()).run.status,'READY');
+    assert.ok(s.requests.some(r=>r.agent.feedback.includes('软偏好')));
+    assert.equal(s.requests[0].agent.title,'课程讨论');assert.match(s.requests[0].agent.candidates[0].weekday,/^周/);
+  }finally{await s.app.close();}
+  const hard=await setup(()=>({action:'answer',choice:null,decision:'decline',reason:'hard_constraint'}));
+  try{await hard.authorize();await hard.call(hard.root+'/agents/start',hard.a,{});assert.equal((await hard.wait()).run.status,'NO_AGREEMENT');assert.equal((await hard.call(hard.root+'/proposal',hard.a)).status,204);}finally{await hard.app.close();}
+});
+
 test('重复工具复用结果且提示模型继续决策；持续重复显示明确失败原因',async()=>{
   const recovered=await setup(a=>a.feedback?answer(a,0):{action:'read_preferences'});
   try{
@@ -67,9 +83,9 @@ test('两位Agent调用工具并根据对方反馈调整；私有数据隔离且
     assert.equal((await s.call('/me/arrangements',s.a)).data.length,1);assert.equal((await s.call('/me/arrangements',s.b)).data.length,1);
   }finally{await s.app.close();}
 });
-test('三轮仍有分歧不创建方案；工具越权动作失败不写入',async()=>{
+test('五轮仍有分歧不创建方案；工具越权动作失败不写入',async()=>{
   const s=await setup(a=>answer(a,a.tools.read_preferences.some(p=>p.content==='B_PRIVATE')?1:0));
-  try{await s.authorize();await s.call(s.root+'/agents/start',s.a,{});const state=await s.wait();assert.equal(state.run.status,'NO_AGREEMENT');assert.equal(Math.max(...state.run.events.map(e=>e.round)),3);assert.equal((await s.call(s.root+'/proposal',s.a)).status,204);}finally{await s.app.close();}
+  try{await s.authorize();await s.call(s.root+'/agents/start',s.a,{});const state=await s.wait();assert.equal(state.run.status,'NO_AGREEMENT');assert.equal(Math.max(...state.run.events.map(e=>e.round)),5);assert.equal((await s.call(s.root+'/proposal',s.a)).status,204);}finally{await s.app.close();}
   const bad=await setup(()=>({action:'delete_schedule',userId:'another-user'}));
   try{await bad.authorize();await bad.call(bad.root+'/agents/start',bad.a,{});assert.equal((await bad.wait()).run.status,'FAILED');assert.deepEqual((await bad.call('/me/arrangements',bad.a)).data,[]);}finally{await bad.app.close();}
 });
