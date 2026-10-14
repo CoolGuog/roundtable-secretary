@@ -80,6 +80,7 @@ model User {
 
   memories     PersonalMemory[]
   arrangements Arrangement[]
+  recurringArrangements RecurringArrangement[]
   arrangementCreateRequests ArrangementCreateRequest[]
   demoSessions DemoSession[]
   wechatSessions WechatSession[]
@@ -141,6 +142,8 @@ model Roundtable {
   members RoundtableMember[]
   proposals Proposal[]
   meetingReview MeetingReview?
+  sharedWorkspace SharedWorkspace?
+  arrangements Arrangement[]
   @@index([ownerId])
   @@map("roundtables")
 }
@@ -247,6 +250,9 @@ model DemoSession {
 model Arrangement {
   id      String @id @default(uuid()) @db.Uuid
   ownerId String @map("owner_id") @db.Uuid
+  /// 同一圆桌活动改期时更新原记录；个人安排没有来源圆桌。
+  sourceRoomId String? @map("source_room_id") @db.Uuid
+  sourceRoom Roundtable? @relation(fields: [sourceRoomId], references: [id], onDelete: SetNull)
 
   /// 安排名称，1~60 字（与现有接口校验保持一致）
   title String @db.VarChar(60)
@@ -269,7 +275,19 @@ model Arrangement {
 
   /// 忙闲摘要与冲突检测的主要查询路径
   @@index([ownerId, startsAt])
+  @@unique([ownerId, sourceRoomId])
   @@map("arrangements")
+}
+
+model RecurringArrangement {
+  id String @id @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  document Json
+  requestKey String? @map("request_key") @db.VarChar(36)
+  fingerprint String
+  @@unique([ownerId, requestKey])
+  @@map("recurring_arrangements")
 }
 
 /// 保存请求的持久记录；删除日程后保留编号，防止迟到重试将其重新创建。
@@ -312,4 +330,12 @@ model PersonalMemory {
   /// 不设 (userId, label) 唯一约束：同一标签允许有多条记忆
   @@index([userId])
   @@map("personal_memories")
+}
+
+model SharedWorkspace {
+  roomId String @id @map("room_id") @db.Uuid
+  document Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  room Roundtable @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@map("shared_workspaces")
 }

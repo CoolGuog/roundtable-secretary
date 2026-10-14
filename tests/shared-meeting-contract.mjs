@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+export async function sharedMeetingContract(t, call, user) {
+ const a = await user('准备发起人'), b = await user('准备负责人'), outsider = await user('准备外人');
+ const date = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+ const room = await (await call('/roundtables', 'POST', a.token, { title: '虚构共享纪要', goal: '准备与落实', dateFrom: date, dateTo: date, startTime: '09:00', endTime: '17:00', durationMinutes: 60 })).json();
+ assert.equal((await call('/roundtables/join', 'POST', b.token, { code: room.inviteCode })).status, 201);
+ const route = `/roundtables/${room.id}/work`, read = async token => (await call(route, 'GET', token)).json();
+ let view = await read(a.token), prepId;
+ const assignment = { title: '确认场地', details: '核对设备', dueDate: date, assigneeMemberId: view.participants.find(p => !p.isMe).memberId };
+ const write = (suffix, body, token = a.token, method = 'POST') => call(route + suffix, method, token, { version: view.version, ...body });
+ const saved = async response => { assert.ok([200, 201].includes(response.status), await response.clone().text()); view = await response.json(); return view; };
+ const draft = { date, summary: '讨论准备进度', decisions: '发起人记录：继续准备', nextSteps: '补齐材料\n通知参与者' };
+ await t.test('共享准备按当前成员分派，只有负责人本人确认，编辑重置状态并保留历史', async () => {
+   assert.equal((await call(route + '/preparation', 'POST', undefined, { version: 0, ...assignment })).status, 401);
+   assert.equal((await write('/preparation', assignment, outsider.token)).status, 404);
+   assert.equal((await write('/preparation', assignment, b.token)).status, 403);
+   assert.equal((await write('/preparation', { ...assignment, assigneeMemberId: '外人' })).status, 400);
+   assert.equal((await write('/preparation', { ...assignment, done: true })).status, 400);
+   await saved(await write('/preparation', assignment)); prepId = view.preparation[0].id;
+   assert.equal((await write(`/preparation/${prepId}/action`, { done: true, note: '代办' }, a.token, 'PUT')).status, 403);
+   assert.equal((await write(`/preparation/${prepId}/action`, { done: true, note: '' }, b.token, 'PUT')).status, 400);
+   await saved(await write(`/preparation/${prepId}/action`, { done: true, note: '已现场核对' }, b.token, 'PUT'));
+   assert.equal(view.preparation[0].done, true); assert.ok(view.preparation[0].doneAt);
+   await saved(await write(`/preparation/${prepId}/action`, { done: false, note: '设备需要复查' }, b.token, 'PUT'));
+   assert.equal(view.preparation[0].done, false); assert.equal(view.preparation[0].doneAt, null);
+   await saved(await write(`/preparation/${prepId}/action`, { done: true, note: '再次核对通过' }, b.token, 'PUT'));
+   await saved(await write(`/preparation/${prepId}`, { ...assignment, details: '补查网络' }, a.token, 'PUT'));
+   assert.equal(view.preparation[0].done, false); assert.equal(view.preparation[0].doneAt, null);
+   assert.ok(view.preparation[0].history.some(h => h.note === '已现场核对'));
+   assert.ok(!JSON.stringify(view).includes(b.user.id));
+ });
+ await t.test('纪要日期和内容校验，只有发起人修订；旧版不可被覆盖或借旧工作台版本写入', async () => {
+   assert.equal((await write('/minutes', draft, b.token)).status, 403);
+   assert.equal((await write('/minutes', { ...draft, date: '2000-01-01' })).status, 400);
+   assert.equal((await write('/minutes', { ...draft, nextSteps: Array(11).fill('行动').join('\n') })).status, 400);
+   assert.equal((await write('/minutes', { ...draft, summary: '' })).status, 400);
+   assert.equal((await write('/minutes', { ...draft, agreedByAll: true })).status, 400);
+   const stale = view.version; await saved(await write('/minutes', draft));
+   assert.equal((await write('/minutes', { ...draft, version: stale })).status, 409);
+   assert.equal(view.minutes.length, 1); assert.equal(view.tasks.length, 0);
+   assert.equal((await read(b.token)).minutes[0].summary, draft.summary);
+ });
+ await t.test('纪要行动需显式分派，创建待开始任务；并发只成功一次，刷新后重复仍拒绝', async () => {
+   const input = { dueDate: date, assigneeMemberId: assignment.assigneeMemberId };
+   assert.equal((await write('/minutes/1/actions/0', input, b.token)).status, 403);
+   assert.equal((await write('/minutes/1/actions/0', { ...input, assigneeMemberId: '外人' })).status, 400);
+   assert.equal((await write('/minutes/1/actions/99', input)).status, 404);
+   const result = await Promise.all([write('/minutes/1/actions/0', input), write('/minutes/1/actions/0', input)]);
+   assert.deepEqual(result.map(r => r.status).sort(), [201, 409]); view = await read(a.token);
+   assert.equal(view.tasks.length, 1); assert.equal(view.tasks[0].state, 'TODO'); assert.deepEqual(view.tasks[0].votes, []);
+   assert.equal(view.minutes[0].nextSteps[0].taskId, view.tasks[0].id); assert.equal(view.minutes[0].nextSteps[0].canImport, false);
+   assert.equal((await write('/minutes/1/actions/0', input)).status, 409);
+   const previousTask = view.tasks[0]; await saved(await write('/minutes', { ...draft, summary: '第二版修订', nextSteps: '新的行动' }));
+   assert.equal(view.minutes[0].summary, draft.summary); assert.deepEqual(view.tasks[0], previousTask);
+   assert.equal(view.minutes[0].nextSteps[1].canImport, false);
+   assert.equal((await write('/minutes/1/actions/1', input)).status, 409);
+   await saved(await write('/minutes/2/actions/0', input)); assert.equal(view.tasks.length, 2);
+ });
+ await t.test('准备与纪要消息同事务记录且可定位，退出或重新加入不能继承旧负责人权限', async () => {
+   const notices = await (await call('/me/notifications', 'GET', b.token)).json();
+   assert.ok(notices.some(n => n.section === 'preparation')); assert.ok(notices.some(n => n.section === 'minutes'));
+   assert.equal(notices.filter(n => n.text.includes('纪要第 1 版第 1 项转入任务')).length, 1);
+   assert.deepEqual(await (await call('/me/notifications', 'GET', outsider.token)).json(), []);
+   assert.equal((await call(`/roundtables/${room.id}/members/${assignment.assigneeMemberId}`, 'DELETE', a.token)).status, 200);
+   assert.equal((await write(`/preparation/${prepId}/action`, { done: true, note: '旧身份' }, b.token, 'PUT')).status, 404);
+   const updated = await (await call(`/roundtables/${room.id}`, 'GET', a.token)).json();
+   assert.equal((await call('/roundtables/join', 'POST', b.token, { code: updated.inviteCode })).status, 201);
+   view = await read(a.token); assert.equal(view.preparation[0].assignee.active, false);
+   assert.equal((await write(`/preparation/${prepId}/action`, { done: true, note: '重新加入' }, b.token, 'PUT')).status, 403);
+   await saved(await write(`/preparation/${prepId}`, { ...assignment, assigneeMemberId: view.participants.find(p => !p.isMe).memberId }, a.token, 'PUT'));
+   await saved(await write(`/preparation/${prepId}/action`, { done: true, note: '重新分派后本人确认' }, b.token, 'PUT'));
+ });
+ return { a, b, route, room, expected: await read(a.token), notices: await (await call('/me/notifications', 'GET', b.token)).json() };
+}
