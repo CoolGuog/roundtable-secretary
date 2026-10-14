@@ -1,4 +1,4 @@
-import { HttpException } from '@nestjs/common';
+import { BadRequestException, HttpException } from '@nestjs/common';
 import { isIP } from 'node:net';
 import { HttpModel, SecretaryService } from './secretary';
 
@@ -23,16 +23,32 @@ export const SECRETARY_ACCESS = Symbol('secretary-access');
 const WINDOW_MS = 60000, PER_USER = 6, GLOBAL_CONCURRENT = 4, MAX_USERS = 10000;
 /** 单进程防重复与限流；不是持久化计费额度，重启后清空。 */
 export class SecretaryAccess {
+  private readonly probes = new Map<string, { at: number; ok: boolean }>();
   private readonly users = new Map<string, { starts: number[]; active: boolean }>();
   private active = 0;
   constructor(private readonly secretary: SecretaryService, private readonly clock = Date.now) {}
-  status() {
+  status(userId?: string) {
+    for (const [id, result] of this.probes) if (result.at < this.clock() - 600000) this.probes.delete(id);
+    const probe = userId ? this.probes.get(userId) : undefined;
     return { mode: this.secretary.mode, canGenerate: this.secretary.mode !== 'off',
-      connectionVerified: false, acceptsModelKeys: false,
+      connectionVerified: this.secretary.mode === 'http' && (userId ? probe?.ok === true : Boolean(this.secretary.lastSuccessfulAt)),
+      connectionCheckedAt: probe ? new Date(probe.at).toISOString() : null, model: this.secretary.modelName, acceptsModelKeys: false,
       limits: { requestsPerMinute: PER_USER, concurrentPerUser: 1, concurrentTotal: GLOBAL_CONCURRENT, persistent: false },
       message: this.secretary.mode === 'off' ? '秘书整理未开启，可以手动填写安排'
         : this.secretary.mode === 'stub' ? '使用本地规则整理，不会请求外部模型'
         : '已配置外部模型，生成时会发送你的描述和个人记忆；连接是否可用以本次结果为准' };
+  }
+  async probe(userId: string) {
+    if (this.secretary.mode !== 'http') throw new BadRequestException('尚未配置外部模型；本地规则不能作为真实模型连接验收');
+    return this.run(userId, async () => {
+      // 固定虚构内容，无记忆读取，也没有日程写入；仍计入正常调用限制。
+      const result = await this.secretary.draft('明天上午九点到十点进行连接测试', []);
+      const ok = result.status === 'READY';
+      this.status(userId);
+      if (this.probes.size >= MAX_USERS && !this.probes.has(userId)) this.probes.delete(this.probes.keys().next().value!);
+      this.probes.set(userId, { at: this.clock(), ok });
+      return { ...this.status(userId), message: ok ? '本次外部模型返回了有效草稿。测试只用虚构内容，没有读取记忆或保存日程；结果保留 10 分钟。' : '本次连接测试未取得有效草稿，请检查后台配置或稍后手动重试。' };
+    });
   }
   private reject(message: string, seconds: number): never {
     throw new HttpException({ statusCode: 429, message, retryAfterSeconds: seconds }, 429);
@@ -55,7 +71,17 @@ export class SecretaryAccess {
       this.reject('秘书当前较忙，请稍后再试', 2);
     }
     state.active = true; state.starts.push(now); this.users.set(userId, state); this.active++;
-    try { return await work(); }
+    try {
+      const result = await work();
+      const value = result as { model?: unknown; status?: unknown; items?: unknown } | null;
+      if (this.secretary.mode === 'http' && value && value.model === this.secretary.modelName &&
+          (value.status === 'READY' || (Array.isArray(value.items) && value.items.length > 0))) {
+        this.status(userId);
+        if (this.probes.size >= MAX_USERS && !this.probes.has(userId)) this.probes.delete(this.probes.keys().next().value!);
+        this.probes.set(userId, { at: this.clock(), ok: true });
+      }
+      return result;
+    }
     finally { state.active = false; this.active--; }
   }
 }

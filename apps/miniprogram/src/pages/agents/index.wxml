@@ -1,0 +1,21 @@
+<feedback-toast message="{{error}}" binddismiss="onFeedbackDismiss" />
+<view class="page">
+  <view class="title">两位秘书协商</view>
+  <view class="subtitle">各自考虑主人的安排，共同寻找讨论时间。</view>
+  <view class="card" wx:if="{{state}}">
+    <view class="card-title">个人秘书授权</view>
+    <view wx:for="{{state.members}}" wx:key="index" class="member"><text>{{item.name}}{{item.isMe ? '（我）' : ''}}</text><text>{{item.authorized ? '秘书已授权' : item.shareBusy ? '待授权秘书' : '待授权忙闲'}}</text></view>
+    <view class="muted spaced">先在圆桌详情授权忙闲，再在这里授权秘书使用本人的偏好。授权和过程暂保留24小时，后台重启会清空。</view>
+    <button class="secondary" bindtap="consent" disabled="{{busy || !state.enabled || !state.roomOpen}}">{{authorized ? '撤回秘书授权' : '授权我的秘书'}}</button>
+    <view wx:if="{{!state.enabled}}" class="notice">后台尚未接入真实模型。</view>
+    <view wx:if="{{state.members.length !== 2}}" class="notice">首版仅支持两位成员。</view>
+    <button wx:if="{{state.isOwner}}" class="primary" bindtap="start" disabled="{{busy || !state.enabled || !state.roomOpen || state.members.length !== 2 || state.run.status === 'RUNNING'}}">{{state.run.status === 'RUNNING' ? '秘书正在协商…' : '开始协商（最多5轮）'}}</button>
+  </view>
+  <view class="card" wx:if="{{state.run}}">
+    <view class="card-title">{{state.run.status === 'RUNNING' ? '协商进行中' : state.run.status === 'READY' ? '等待主人确认' : '需要主人处理'}}</view>
+    <view class="notice">{{state.run.message}}</view>
+    <view wx:for="{{state.run.events}}" wx:key="index" class="event"><view class="muted">第{{item.round}}轮 · {{item.speaker}}</view><view class="spaced">{{item.text}}</view></view>
+  </view>
+  <view class="muted spaced">工具读取和时间提议来自真实执行；共享消息由程序生成，不公开任何私人偏好或日程标题。候选最多216个，不代表所有可行时段。</view>
+  <button class="secondary" bindtap="back">返回圆桌 / 确认方案</button>
+</view>

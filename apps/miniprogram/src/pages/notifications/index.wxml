@@ -1,0 +1,6 @@
+<view class="page"><text class="eyebrow">YOUR INBOX</text><view class="title">伙伴有了新进展。</view><view class="notice">这里显示会前准备、纪要修订，以及协作任务的分派、提交、验收与重开消息。打开页面或下拉刷新读取，不是微信订阅推送。每个圆桌保留最近 200 条事件，此处显示仍有访问权限的最新 100 条本人消息。</view>
+  <view wx:if="{{!enabled}}" class="empty">本机模式不接收伙伴消息。切换后台模式并登录后使用。</view>
+  <block wx:else><button class="secondary refresh-notices" bindtap="reload" disabled="{{loading || busy}}">{{loading ? '读取中…' : '刷新消息'}}</button><view wx:if="{{error}}" class="error">{{error}}</view><view class="muted spaced">当前列表未读 {{unread}} 条</view><view wx:if="{{!loading && !items.length && !error}}" class="empty">暂时没有消息。</view>
+    <view class="card" wx:for="{{items}}" wx:key="id"><view class="card-title">{{item.title}}</view><view class="muted spaced">{{item.roomTitle}}</view><view class="subtitle spaced">{{item.text}}</view><view class="muted">{{item.readAt ? '已读' : '未读'}}</view><button class="secondary open-notice" data-id="{{item.id}}" bindtap="open" disabled="{{busy}}">查看对应工作台</button><button wx:if="{{!item.readAt}}" class="secondary read-notice" data-id="{{item.id}}" bindtap="mark" disabled="{{busy || loading}}">标为已读</button></view>
+  </block>
+</view>

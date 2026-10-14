@@ -1,0 +1,7 @@
+<view class="page"><text class="eyebrow">MODEL CONNECTION</text><view class="title">确认秘书是否连通。</view><view class="notice">模型地址、名称和密钥只在后台配置，此页不接收密钥。连接测试只发送一条虚构安排，不读取记忆、不写入日程。</view>
+  <button class="secondary refresh-model" bindtap="reload" disabled="{{busy}}">刷新配置状态</button><view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{status}}" class="card"><view class="card-title">{{status.mode === 'http' ? '外部模型已配置' : status.mode === 'off' ? '尚未开启模型' : '本机规则模式'}}</view><view class="subtitle spaced">{{status.message}}</view><view class="notice">{{status.connectionVerified ? '最近一次连接测试成功（10 分钟内），不保证之后每次调用都成功。' : '当前没有有效的连接测试成功记录。'}}</view>
+    <button wx:if="{{enabled && status.mode === 'http' && !confirming}}" class="primary prepare-model" bindtap="prepare" disabled="{{busy || !fresh}}">测试外部模型连接</button>
+    <block wx:if="{{confirming}}"><view class="notice">确认后会向已配置的模型服务发送一次测试请求，可能产生服务商费用，并计入调用次数限制。</view><button class="primary confirm-model" bindtap="check" disabled="{{busy || !fresh}}">确认进行一次测试</button><button class="secondary cancel-model" bindtap="cancel" disabled="{{busy}}">取消</button></block>
+  </view>
+</view>

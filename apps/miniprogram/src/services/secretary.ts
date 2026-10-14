@@ -1,11 +1,17 @@
+import { readLocal, writeLocal, removeLocal } from './local-store';
 import { config } from './config';
 import { localDraft, DraftFields } from './local-draft';
+import { RepeatRule, repeatWindow, repeatRule, validDay } from './repeat-engine';
+import { localRepeated, saveLocalRepeated, changeLocalRepeated } from './local-repeated';
 
-export interface ArrangementInput { title: string; date: string; startTime: string; endTime: string; }
-export interface Arrangement extends ArrangementInput { id: string; createdAt: string; }
+export interface ArrangementInput { title: string; date: string; startTime: string; endTime: string; repeat?: RepeatRule; }
+export interface Arrangement extends ArrangementInput { id: string; createdAt: string; repeatLabel?: string; seriesId?: string; repeatKind?: 'daily' | 'weekly'; repeatUntil?: string; }
 const dataKey = 'roundtable.demo.arrangements.v1';
 const legacySessionKey = 'roundtable.demo.session.v1';
-const sessionKey = () => `roundtable.session.v2.${config.authMode}.${config.apiBase}`;
+// Only local demo previews use A/B identities; real WeChat sessions retain their existing keys.
+const demoIdentity = () => config.mode === 'api' && config.authMode === 'demo' &&
+  /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(config.apiBase) ? config.demoIdentity : undefined;
+const sessionKey = () => `roundtable.session.v2.${config.authMode}.${config.apiBase}${demoIdentity() ? `.preview-${demoIdentity()}` : ''}`;
 let sessionPromise: Promise<string> | undefined;
 let sessionEpoch = 0;
 // 仅在本次小程序运行期间保留待确认请求，不把安排内容落入 API 模式的本机存储。
@@ -34,7 +40,7 @@ export interface ScheduleDraft {
   model: string; message: string;
 }
 
-export function modeLabel() { return config.mode === 'local' ? '本机演示 · 未联网' : config.authMode === 'wechat' ? '本地后台 · 微信登录' : '本地后台 · 演示会话'; }
+export function modeLabel() { return config.mode === 'local' ? '本机演示 · 未联网' : config.authMode === 'wechat' ? '本地后台 · 微信登录' : demoIdentity() ? `测试学生 ${demoIdentity()} · 本地后台` : '本地后台 · 演示会话'; }
 export function loginEnabled() { return config.mode === 'api' && config.authMode === 'wechat'; }
 export function hasLogin() { return Boolean(wx.getStorageSync(sessionKey())); }
 // 与 apps/api/src/time.ts 对齐：中国无夏令时，北京时间恒为 UTC+8。
@@ -45,7 +51,8 @@ export function errorMessage(error: unknown) { return error instanceof Error ? e
 function validate(input: ArrangementInput): ArrangementInput {
   const title = input.title.trim();
   if (!title || title.length > 60) throw new Error('请填写 1 至 60 字的安排名称');
-  if (!input.date || !input.startTime || !input.endTime || input.startTime >= input.endTime) {
+  if (!validDay(input.date)) throw new Error('请选择有效的日期');
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.startTime) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.endTime) || input.startTime >= input.endTime) {
     throw new Error('结束时间须晚于开始时间，首版仅支持同日安排');
   }
   return { ...input, title };
@@ -72,7 +79,7 @@ function ensureSession(): Promise<string> {
   const promise = (async () => {
     const session = config.authMode === 'wechat'
       ? await raw<{ token: string }>('/auth/wechat', 'POST', { code: await wechatCode() })
-      : await raw<{ token: string }>('/dev/sessions', 'POST', { name: '演示用户' });
+      : await raw<{ token: string }>('/dev/sessions', 'POST', { name: demoIdentity() ? `测试学生${demoIdentity()}` : '演示用户' });
     if (epoch !== sessionEpoch) throw new Error('登录已取消，请重试');
     if (typeof session.token !== 'string' || !/^[a-f0-9]{64}$/.test(session.token)) throw new Error('登录响应无效，请重试');
     wx.setStorageSync(sessionKey(), session.token);
@@ -108,7 +115,7 @@ export async function logout() {
 function raw<T>(path: string, method: Method, data?: object, token?: string, requestId?: string): Promise<T> {
   return new Promise((resolve, reject) => {
     wx.request({
-      url: config.apiBase + path, method, data, timeout: 10000,
+      url: config.apiBase + path, method, data, timeout: ['/me/secretary/drafts', '/me/secretary/course-drafts'].includes(path) ? 65000 : ['/me/secretary/draft', '/me/secretary/connection-check'].includes(path) ? 35000 : 10000,
       header: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(requestId ? { 'Idempotency-Key': requestId } : {}) },
       success(response) {
         if (response.statusCode >= 200 && response.statusCode < 300) resolve(response.data as T);
@@ -118,7 +125,16 @@ function raw<T>(path: string, method: Method, data?: object, token?: string, req
         } else if (response.statusCode === 404) reject(new RequestError(path.startsWith('/roundtables') ? ((response.data as { message?: string })?.message || '圆桌不存在或你已不是成员') : path.startsWith('/me/memories/') ? '这条记忆已不存在，请刷新后重试' : path.startsWith('/me/arrangements/') ? '这条安排已不存在，请刷新后重试' : '登录方式与后台配置不一致，请检查运行配置', 404));
         else reject(new RequestError((response.data as { message?: string })?.message || '服务暂时不可用', response.statusCode));
       },
-      fail() { reject(new RequestError('未收到后台响应，请检查网络和后台服务后刷新。', 0)); },
+      fail(error) {
+        const detail = error?.errMsg || '';
+        if (/url not in domain list|domain.*(invalid|list)|不在.*合法域名/i.test(detail)) {
+          reject(new RequestError('请求被域名校验拦截。本机调试请在开发者工具“详情 → 本地设置”勾选“不校验合法域名”，然后重新编译。', 0));
+        } else if (/timeout|timed out/i.test(detail)) {
+          reject(new RequestError('后台请求超时，请检查本机服务状态后重试。', 0));
+        } else {
+          reject(new RequestError('无法连接后台。请确认本机服务已启动、开发者工具允许本机 HTTP 请求；手机不能使用电脑的 127.0.0.1 地址。', 0));
+        }
+      },
     });
   });
 }
@@ -132,16 +148,50 @@ export async function draftFromText(text: string, previous: DraftFields | null =
   return request<ScheduleDraft>('/me/secretary/draft', 'POST', { text: value });
 }
 
-export async function listArrangements(): Promise<Arrangement[]> {
-  if (config.mode === 'api') return request<Arrangement[]>('/me/arrangements', 'GET');
-  const records = wx.getStorageSync(dataKey);
-  return (Array.isArray(records) ? records : [])
+export interface BatchItem extends ScheduleDraft { repeatKind: string; weekdays: number[]; until: string | null; selected: boolean; saved: boolean; uncertain?: boolean; recognitionIssue?: string; }
+export function draftsFromText(text: string) {
+  return request<{ items: BatchItem[]; model: string; notes: string[] }>('/me/secretary/drafts', 'POST', { text });
+}
+
+export function courseDraftsFromText(text: string, context: string) {
+  return request<{ items: BatchItem[]; model: string; notes: string[]; unrecognized?: Array<{ title: string; reason: string }> }>('/me/secretary/course-drafts', 'POST', { text, context });
+}
+export function uploadCourseFile(path: string, name: string, size: number) {
+  return uploadCourse<{ text: string; notes: string[] }>(path, name, size);
+}
+export function courseDraftsFromImage(path: string, name: string, size: number, context: string) {
+  return uploadCourse<{ items: BatchItem[]; model: string; notes: string[]; unrecognized?: Array<{ title: string; reason: string }> }>(path, name, size, context);
+}
+async function uploadCourse<T>(path: string, name: string, size: number, context?: string) {
+  if (config.mode !== 'api') throw new Error('课表文件识别需要连接后台，请使用A/B预览');
+  if (size > 4 * 1024 * 1024) throw new Error('文件请控制在4MB以内');
+  const token = await ensureSession();
+  return new Promise<T>((resolve, reject) => wx.uploadFile({
+    url: config.apiBase + (context === undefined ? '/me/secretary/course-file' : '/me/secretary/course-image'), filePath: path, name: 'file', timeout: 110000, formData: { filename: name, ...(context === undefined ? {} : { context }) },
+    header: { Authorization: `Bearer ${token}` },
+    success(response) {
+      try {
+        const result = JSON.parse(response.data);
+        if (response.statusCode >= 200 && response.statusCode < 300) resolve(result);
+        else reject(new Error(response.statusCode === 413 ? '文件过大，请控制在4MB以内' : result.message || '文件识别失败'));
+      } catch { reject(new Error('后台未返回有效识别结果，请重试')); }
+    },
+    fail() { reject(new Error('文件上传失败或识别超时，请检查后台与上传域名设置后重试')); },
+  }));
+}
+
+export async function listArrangements(from?: string, to?: string): Promise<Arrangement[]> {
+  const window = repeatWindow(from, to);
+  if (config.mode === 'api') return request<Arrangement[]>('/me/arrangements' + (from ? `?from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}` : ''), 'GET');
+  const records = readLocal(dataKey);
+  return [...(Array.isArray(records) ? records : []), ...localRepeated(window.from, window.to)]
     .sort((a: Arrangement, b: Arrangement) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
 }
 export async function saveArrangement(input: ArrangementInput): Promise<void> {
   const value = validate(input);
+  if (value.repeat) value.repeat = repeatRule(value.repeat, value.date);
   if (config.mode === 'api') {
-    const signature = JSON.stringify([sessionKey(), value.title, value.date, value.startTime, value.endTime]);
+    const signature = JSON.stringify([sessionKey(), value.title, value.date, value.startTime, value.endTime, value.repeat]);
     let id = pendingSaves.get(signature);
     if (!id) {
       if (pendingSaves.size >= 100) throw new Error('待确认的保存较多，请先查看日程，确认结果后重新打开小程序');
@@ -152,29 +202,36 @@ export async function saveArrangement(input: ArrangementInput): Promise<void> {
     if (pendingSaves.get(signature) === id) pendingSaves.delete(signature);
     return;
   }
-  const records = await listArrangements();
+  if (value.repeat) { saveLocalRepeated(value as ArrangementInput & { repeat: RepeatRule }); return; }
+  const stored = readLocal(dataKey);
+  const records: Arrangement[] = Array.isArray(stored) ? stored : [];
   if (records.length >= 100) throw new Error('演示最多保存 100 条安排');
   records.push({ ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, createdAt: new Date().toISOString() });
-  wx.setStorageSync(dataKey, records);
+  writeLocal(dataKey, records);
 }
-export async function updateArrangement(id: string, input: ArrangementInput): Promise<void> {
+export async function updateArrangement(id: string, input: ArrangementInput & { repeatUntil?: string }, scope = 'one'): Promise<void> {
   const value = validate(input);
-  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}`, 'PUT', value); return; }
-  const records = await listArrangements();
+  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}`, 'PUT', id.startsWith('r:') ? { ...value, scope } : value); return; }
+  if (id.startsWith('r:')) { changeLocalRepeated(id, scope, value); return; }
+  const stored = readLocal(dataKey);
+  const records: Arrangement[] = Array.isArray(stored) ? stored : [];
   const index = records.findIndex(item => item.id === id);
   if (index < 0) throw new Error('这条安排已不存在，请刷新后重试');
   records[index] = { ...records[index], ...value };
-  wx.setStorageSync(dataKey, records);
+  writeLocal(dataKey, records);
 }
-export async function deleteArrangement(id: string) {
-  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}`, 'DELETE'); return; }
-  wx.setStorageSync(dataKey, (await listArrangements()).filter(item => item.id !== id));
+export async function deleteArrangement(id: string, scope = 'one') {
+  if (config.mode === 'api') { await request(`/me/arrangements/${encodeURIComponent(id)}` + (id.startsWith('r:') ? `?scope=${scope}` : ''), 'DELETE'); return; }
+  if (id.startsWith('r:')) { changeLocalRepeated(id, scope, null); return; }
+  const stored = readLocal(dataKey);
+  writeLocal(dataKey, (Array.isArray(stored) ? stored : []).filter((item: Arrangement) => item.id !== id));
 }
 export function clearLocalDemo() {
-  wx.removeStorageSync('roundtable.demo.meeting-work.v1');
-  wx.removeStorageSync('roundtable.demo.reviews.v1');
-  wx.removeStorageSync('roundtable.demo.rooms.v1');
-  wx.removeStorageSync('roundtable.demo.memories.v1');
-  wx.removeStorageSync(dataKey); wx.removeStorageSync(legacySessionKey);
+  removeLocal('roundtable.demo.recurring.v1');
+  removeLocal('roundtable.demo.meeting-work.v1');
+  removeLocal('roundtable.demo.reviews.v1');
+  removeLocal('roundtable.demo.rooms.v1');
+  removeLocal('roundtable.demo.memories.v1');
+  removeLocal(dataKey); wx.removeStorageSync(legacySessionKey);
   if (config.authMode === 'demo') { sessionEpoch++; sessionPromise = undefined; pendingSaves.clear(); wx.removeStorageSync(sessionKey()); }
 }
