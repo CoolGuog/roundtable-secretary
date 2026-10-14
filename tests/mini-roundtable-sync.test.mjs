@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { sampleRoom } from './room-contract.mjs';
 
 class RequestError extends Error { constructor(message, statusCode) { super(message); this.statusCode = statusCode; } }
-const room = () => ({ id: 'r', title: '伙伴活动', status: 'OPEN', version: 1, isOwner: true, members: [{ id: 'm', name: '我', isMe: true, shareBusy: true }] });
+const room = () => ({ ...sampleRoom, id: 'r', title: '伙伴活动', status: 'OPEN', version: 1, isOwner: true, members: [{ id: 'm', name: '我', isMe: true, shareBusy: true }] });
 const proposal = status => ({ id: 'p', status, stale: false, createdByMe: true, votes: [{ name: '伙伴', isMe: false, decision: status === 'CONFIRMED' ? 'ACCEPT' : 'PENDING', decidedAt: null }] });
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -32,7 +33,7 @@ function setup(local = false) {
   page.onLoad({ id: 'r' });
   return { page, api, state, timers, reads: () => reads, writes: () => writes, stopped: () => stopped, modal: () => modal,
     async open() { page.onShow(); await settle(); },
-    async tick() { assert.equal(timers.size, 1); const [id, timer] = [...timers][0]; timers.delete(id); timer.fn(); await settle(); return timer.delay; },
+    async tick() { const polling = [...timers].filter(([, timer]) => timer.delay >= 5000); assert.equal(polling.length, 1); const [id, timer] = polling[0]; timers.delete(id); timer.fn(); await settle(); return timer.delay; },
   };
 }
 
@@ -131,5 +132,16 @@ test('刷新会作废旧的候选计算，迟到的结果不能恢复失效候�
 test('下拉刷新失败也停止动画；本机演示不会创建自动请求', async () => {
   const c = setup(true); await c.open(); assert.equal(c.timers.size, 0); assert.equal(c.page.data.proposal, null);
   c.api.getRoom = async () => { throw new RequestError('离线', 0); }; await c.page.onPullDownRefresh();
-  assert.equal(c.stopped(), 1); assert.equal(c.page.data.loading, false); assert.equal(c.timers.size, 0);
+  assert.equal(c.stopped(), 1); assert.equal(c.page.data.loading, false); assert.equal([...c.timers.values()].filter(timer => timer.delay >= 5000).length, 0);
+});
+
+test('自动同步不覆盖用户正在填写的手动时间；本人投票状态随刷新更新', async () => {
+  const c = setup(); await c.open();
+  c.page.onManualStart({ detail: { value: '14:17' } });
+  const selectedDate = c.page.data.manualDate;
+  c.state.proposal.votes.push({ name: '我', isMe: true, decision: 'ACCEPT' });
+  await c.tick();
+  assert.equal(c.page.data.manualDate, selectedDate);
+  assert.equal(c.page.data.manualStart, '14:17'); assert.equal(c.page.data.manualEnd, '15:17');
+  assert.equal(c.page.data.proposal.myDecision, 'ACCEPT');
 });

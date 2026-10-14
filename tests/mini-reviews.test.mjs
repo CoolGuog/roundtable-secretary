@@ -1,3 +1,4 @@
+import { withLocalStore } from './local-store-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,9 +12,9 @@ const input = { version: 0, date: '2026-10-01', outcome: 'NOT_HELD', facts: '虚
   allocations: [{ memberId: 'me', percent: 30, reason: '没有完成约定准备', action: '提前核对' }], externalPercent: 20, externalReason: '停电', unassignedPercent: 50 };
 function service() {
   const storage = new Map(), exports = {};
-  vm.runInNewContext(compile('services/reviews'), { exports, require: name => name.endsWith('roundtables')
+  vm.runInNewContext(compile('services/reviews'), withLocalStore({ exports, require: name => name.endsWith('roundtables')
     ? { isLocalRoomMode: () => true, getRoom: async () => clone(room) } : { today: () => '2026-10-05' },
-    wx: { getStorageSync: key => storage.has(key) ? clone(storage.get(key)) : undefined, setStorageSync: (key, value) => storage.set(key, clone(value)) } });
+    wx: { getStorageSync: key => storage.has(key) ? clone(storage.get(key)) : undefined, setStorageSync: (key, value) => storage.set(key, clone(value)) } }));
   return exports;
 }
 test('本机复盘保留历史但不伪造多人共识，拒绝本机代签', async () => {

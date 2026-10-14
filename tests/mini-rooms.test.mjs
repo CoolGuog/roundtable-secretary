@@ -1,17 +1,19 @@
+import { withLocalStore } from './local-store-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { repeatModules } from './mini-repeat-loader.mjs';
 import { sampleRoom } from './room-contract.mjs';
 function client(mode = 'local') {
   const storage = new Map(), calls = [], exports = {};
   const source = fs.readFileSync('apps/miniprogram/src/services/roundtables.ts', 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(js, { exports,
+  vm.runInNewContext(js, withLocalStore({ exports,
     wx: { getStorageSync: key => structuredClone(storage.get(key)), setStorageSync: (key, value) => storage.set(key, structuredClone(value)) },
     require: name => name === './config' ? { config: { mode } } : { request: async (...args) => { calls.push(args); return []; } },
-  });
+  }));
   return { api: exports, calls, storage };
 }
 function secretaryClient(mode = 'local') {
@@ -24,18 +26,14 @@ function secretaryClient(mode = 'local') {
   const token = 'a'.repeat(64);
   const draft = { status: 'READY', title: '和导师开会', date: '2026-10-01', startTime: '15:00', endTime: '16:00',
     confidence: 'HIGH', missing: [], reasons: [], usedMemories: [], model: 'stub', message: '已生成草稿，确认后才会写入你的日程' };
-  vm.runInNewContext(js, { exports,
-    wx: {
-      getStorageSync: key => storage.get(key),
-      setStorageSync: (key, value) => storage.set(key, value),
-      removeStorageSync: key => storage.delete(key),
-      request(options) {
-        calls.push([options.method, options.url, options.data]);
-        options.success(options.url.includes('/dev/sessions') ? { statusCode: 201, data: { token } } : { statusCode: 200, data: draft });
-      },
-    },
-    require: name => name === './config' ? { config: { mode, authMode: 'demo', apiBase: 'http://127.0.0.1:3000' } } : rules,
-  });
+  const wx = {
+    getStorageSync: key => storage.get(key), setStorageSync: (key, value) => storage.set(key, value), removeStorageSync: key => storage.delete(key),
+    request(options) { calls.push([options.method, options.url, options.data]); options.success(options.url.includes('/dev/sessions') ? { statusCode: 201, data: { token } } : { statusCode: 200, data: draft }); },
+  };
+  const repeats = repeatModules(wx);
+  vm.runInNewContext(js, withLocalStore({ exports, wx,
+    require: name => name === './config' ? { config: { mode, authMode: 'demo', apiBase: 'http://127.0.0.1:3000' } } : repeats.get(name) || rules,
+  }));
   return { api: exports, calls, storage };
 }
 test('秘书后台草稿路由保持兼容，本机分步草稿不联网且确认前不存储', async () => {

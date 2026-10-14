@@ -1,3 +1,4 @@
+import { withLocalStore } from './local-store-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,10 +10,10 @@ const input = { title: '核对材料', owner: '演示成员', dueDate: '2026-10-
 function service(local = true) {
   const storage = new Map(), exports = {}; let fail = false, roomReads = 0;
   const review = { participants: [{ memberId: 'one', name: '演示成员' }], revisions: [{ revision: 1, allocations: [{ memberId: 'one', action: '补齐会议材料' }] }] };
-  vm.runInNewContext(code, { exports, require: name => name.endsWith('/roundtables') ? { isLocalRoomMode: () => local, getRoom: async id => {
+  vm.runInNewContext(code, withLocalStore({ exports, require: name => name.endsWith('/roundtables') ? { isLocalRoomMode: () => local, getRoom: async id => {
     roomReads++; if (id !== 'room') throw Error('圆桌不存在'); return { id, dateFrom: '2026-10-01', dateTo: '2026-10-31' }; } } : { getReview: async () => clone(review) },
     wx: { getStorageSync: key => storage.has(key) ? clone(storage.get(key)) : undefined,
-      setStorageSync: (key, value) => { if (fail) throw Error('本机存储空间不足'); storage.set(key, clone(value)); } } });
+      setStorageSync: (key, value) => { if (fail) throw Error('本机存储空间不足'); storage.set(key, clone(value)); } } }));
   return { api: exports, review, storage, fail: () => { fail = true; }, reads: () => roomReads };
 }
 test('任务执行、完成说明、验收、重开保留记录，不能跳过验收或无说明标完成', async () => {

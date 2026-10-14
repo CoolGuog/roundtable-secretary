@@ -70,10 +70,10 @@ test('任务统计失败仍能展示日程，失败不显示为零任务；迟�
   let finish; const d = weekPage({ listArrangements: () => new Promise(resolve => { finish = resolve; }) });
   const pending = d.p.reload(); d.p.onHide(); finish([]); await pending; assert.equal(d.p.data.loaded, false);
 });
-test('翻周、选择日期与分钟状态刷新不额外读取后台，离页清理计时器', async () => {
-  const c = weekPage(); await c.p.reload(); c.p.scheduleClock(); c.p.next(); assert.equal(c.p.data.start, '2026-10-12');
-  c.p.previous(); assert.equal(c.p.data.stats.count, 1); c.p.currentWeek();
-  c.p.onDate({ detail: { value: '2020-01-06' } }); c.p.previous(); assert.equal(c.p.data.start, '2019-12-30');
-  assert.equal(c.p.data.canPrevious, false); [...c.timers.values()][0](); assert.equal(c.reads(), 1);
+test('翻周和选择日期读取对应日期范围，分钟刷新不联网，离页清理计时器', async () => {
+  const c = weekPage(); await c.p.reload(); c.p.scheduleClock(); c.p.next(); await new Promise(setImmediate); assert.equal(c.p.data.start, '2026-10-12');
+  c.p.previous(); await new Promise(setImmediate); assert.equal(c.p.data.stats.count, 1); c.p.currentWeek(); await new Promise(setImmediate);
+  c.p.onDate({ detail: { value: '2020-01-06' } }); await new Promise(setImmediate); c.p.previous(); await new Promise(setImmediate); await new Promise(setImmediate); assert.equal(c.p.data.start, '2019-12-30');
+  assert.equal(c.p.data.canPrevious, false); const reads = c.reads(); [...c.timers.values()][0](); assert.equal(c.reads(), reads); assert.equal(reads, 6);
   c.p.onHide(); assert.equal(c.p._timer, null);
 });
