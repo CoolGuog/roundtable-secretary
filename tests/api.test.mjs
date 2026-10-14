@@ -1,3 +1,4 @@
+import { recurrenceContract } from './recurrence-contract.mjs';
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../apps/api/dist/app.js';
@@ -185,3 +186,5 @@ test('模型报错或返回垃圾时降级为不可用，绝不写入', async ()
     assert.deepEqual(await (await call_('/me/arrangements', 'GET', a.token)).json(), []);
   });
 });
+
+test('内存重复日程', t => recurrenceContract(t, call, user));

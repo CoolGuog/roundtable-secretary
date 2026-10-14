@@ -2,10 +2,10 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 import { Prisma, PrismaClient } from '@prisma/client';
 import {
   Availability, Decision, NegotiationRoom, NegotiationStore, Proposal, PROPOSAL_TTL_MS,
-  availabilityOf, isStale, sameSlot, validateDecision, validateProposalInput, withinWindow,
+  availabilityOf, isStale, validateDecision, validateProposalInput, validateSelectedSlot,
 } from './negotiation';
-import { ArrangementInput } from './store';
 import { TIME_ZONE, beijingInstant } from './time';
+import { RepeatSeries, expandRepeat } from './repeat-engine';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Transaction = <T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
@@ -34,10 +34,14 @@ export class PostgresNegotiation implements NegotiationStore {
     const from = beijingInstant(room.dateFrom, '00:00');
     const to = beijingInstant(room.dateTo, '23:59');
     const rows = await tx.arrangement.findMany({
-      where: { ownerId: { in: shared }, startsAt: { lt: to }, endsAt: { gt: from } },
+      where: { ownerId: { in: shared }, startsAt: { lt: to }, endsAt: { gt: from },
+        OR: [{ sourceRoomId: null }, { sourceRoomId: { not: room.id } }] },
       select: { startsAt: true, endsAt: true },
     });
-    return rows.map(row => ({ start: row.startsAt.getTime(), end: row.endsAt.getTime() }));
+    const series = await tx.recurringArrangement.findMany({ where: { ownerId: { in: shared } }, select: { document: true } });
+    const repeated = series.flatMap(row => expandRepeat(row.document as unknown as RepeatSeries, room.dateFrom, room.dateTo));
+    return [...rows.map(row => ({ start: row.startsAt.getTime(), end: row.endsAt.getTime() })),
+      ...repeated.map(item => ({ start: beijingInstant(item.date, item.startTime).getTime(), end: beijingInstant(item.date, item.endTime).getTime() }))];
   }
   private async compute(tx: Prisma.TransactionClient, room: NegotiationRoom): Promise<Availability> {
     return availabilityOf(room, await this.busy(tx, room));
@@ -61,11 +65,7 @@ export class PostgresNegotiation implements NegotiationStore {
     return this.transaction(async tx => {
       const room = await this.loadRoom(tx, userId, roomId);
       if (room.status !== 'OPEN') throw new BadRequestException('圆桌已关闭，不能再协商');
-      if (!withinWindow(room, slot)) throw new BadRequestException('所选时段不在圆桌约定的日期与时间窗口内');
-      const available = await this.compute(tx, room);
-      if (!available.slots.some(item => sameSlot(item, slot))) {
-        throw new BadRequestException(available.reason ?? '该时段已不是当前的共同可用时间，请重新计算后选择');
-      }
+      validateSelectedSlot(room, slot, await this.busy(tx, room));
       const existing = await tx.proposal.findMany({ where: { roomId, status: 'OPEN' } });
       for (const item of existing) {
         if (!isStale(item, room.version)) throw new BadRequestException('已有一个待确认方案，请先完成确认或撤回');
@@ -113,17 +113,23 @@ export class PostgresNegotiation implements NegotiationStore {
       }
       // 全员接受：写入前最后一次冲突检查，任何成员有安排就整体放弃，避免写出互相冲突的日程。
       for (const member of room.members) {
-        const conflict = await tx.arrangement.count({ where: { ownerId: member.userId, startsAt: { lt: end }, endsAt: { gt: start } } });
+        const conflict = await tx.arrangement.count({ where: { ownerId: member.userId, startsAt: { lt: end }, endsAt: { gt: start },
+          OR: [{ sourceRoomId: null }, { sourceRoomId: { not: room.id } }] } });
         if (conflict) throw new BadRequestException('有成员在该时段已有其他安排，请重新选择时间');
+        const recurring = await tx.recurringArrangement.findMany({ where: { ownerId: member.userId }, select: { document: true } });
+        if (recurring.flatMap(row => expandRepeat(row.document as unknown as RepeatSeries, proposal.date, proposal.date))
+          .some(item => beijingInstant(item.date, item.startTime) < end && beijingInstant(item.date, item.endTime) > start)) {
+          throw new BadRequestException('有成员在该时段已有其他安排，请重新选择时间');
+        }
       }
       for (const member of room.members) {
-        if (await tx.arrangement.count({ where: { ownerId: member.userId } }) >= 100) {
+        const existing = await tx.arrangement.findUnique({ where: { ownerId_sourceRoomId: { ownerId: member.userId, sourceRoomId: room.id } } });
+        if (!existing && await tx.arrangement.count({ where: { ownerId: member.userId } }) >= 100) {
           throw new BadRequestException('有成员的日程已达 100 条上限，无法写入');
         }
-        const input: ArrangementInput = { title: room.title, date: proposal.date, startTime: proposal.startTime, endTime: proposal.endTime };
-        await tx.arrangement.create({ data: { ownerId: member.userId, title: input.title,
-          startsAt: beijingInstant(input.date, input.startTime), endsAt: beijingInstant(input.date, input.endTime),
-          timezone: TIME_ZONE, scope: 'PRIVATE' } });
+        const data = { title: room.title, startsAt: start, endsAt: end, timezone: TIME_ZONE };
+        if (existing) await tx.arrangement.update({ where: { id: existing.id }, data });
+        else await tx.arrangement.create({ data: { ...data, ownerId: member.userId, sourceRoomId: room.id, scope: 'PRIVATE' } });
       }
       return this.dto(await tx.proposal.update({ where: { id: proposal.id }, data: { status: 'CONFIRMED', appliedAt: new Date() }, include: votes }), room, userId);
     });

@@ -1,3 +1,4 @@
+import { recurrenceContract } from './recurrence-contract.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
@@ -12,6 +13,8 @@ import { StubModel } from '../apps/api/dist/secretary.js';
 import { negotiationRecoveryContract } from './negotiation-recovery-contract.mjs';
 import { arrangementRetryContract } from './arrangement-retry-contract.mjs';
 import { reviewContract } from './review-contract.mjs';
+import { sharedWorkContract } from './shared-work-contract.mjs';
+import { sharedMeetingContract } from './shared-meeting-contract.mjs';
 
 test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.env.RUN_POSTGRES_TESTS }, async t => {
   assert.ok(process.env.DATABASE_URL, '需要本机 DATABASE_URL');
@@ -68,6 +71,21 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
       assert.equal(await db.user.count(), 0, '探测不能创建用户或测试会话');
     });
     await arrangementRetryContract(t, call, user);
+    await recurrenceContract(t, call, user);
+    await t.test('重复规则与单次例外跨服务重启保留，原请求重试不会新增一套课表', async () => {
+      const a = await user('持久重复'), key = randomUUID(), headers = { 'Idempotency-Key': key };
+      const input = { title: '持久课程', date: '2027-01-04', startTime: '08:30', endTime: '09:30', repeat: { kind: 'weekly', weekdays: [1] } };
+      const saved = await (await call('/me/arrangements', 'POST', a.token, input, headers)).json();
+      const route = '/me/arrangements?from=2027-01-04&to=2027-01-18';
+      const rows = await (await call(route, 'GET', a.token)).json();
+      await call(`/me/arrangements/${rows[1].id}?scope=one`, 'DELETE', a.token);
+      await app.close(); app = undefined; await start();
+      const remaining = await (await call(route, 'GET', a.token)).json();
+      assert.deepEqual(remaining.map(row => row.date), ['2027-01-04', '2027-01-18']);
+      const replay = await call('/me/arrangements', 'POST', a.token, input, headers);
+      assert.equal(replay.status, 201); assert.equal((await replay.json()).id, saved.id);
+      assert.equal(await db.recurringArrangement.count({ where: { ownerId: a.user.id } }), 1);
+    });
     await t.test('保存编号跨后台重启保留，日程和请求记录在同一事务内持久化', async () => {
       const a = await user('持久重试'), key = randomUUID(), headers = { 'Idempotency-Key': key };
       const original = await (await call('/me/arrangements', 'POST', a.token, sample, headers)).json();
@@ -80,6 +98,18 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
     await memoryContract(t, call, user);
     await roomContract(t, call, user);
     await reviewContract(t, call, user);
+    const shared = await sharedWorkContract(t, call, user);
+    const meeting = await sharedMeetingContract(t, call, user);
+    await t.test('协作任务与消息跨重启持久化，缺工作台表时拒绝启动', async () => {
+      await app.close(); app = undefined; await start();
+      assert.deepEqual(await (await call(shared.route, 'GET', shared.a.token)).json(), shared.expected);
+      assert.deepEqual(await (await call(meeting.route, 'GET', meeting.a.token)).json(), meeting.expected);
+      assert.deepEqual(await (await call('/me/notifications', 'GET', meeting.b.token)).json(), meeting.notices);
+      assert.deepEqual(await (await call('/me/notifications', 'GET', shared.c.token)).json(), shared.notices);
+      await db.$executeRawUnsafe(`ALTER TABLE "${schema}".shared_workspaces RENAME TO hidden_shared_workspaces`);
+      try { await assert.rejects(createApp({ storage: 'postgres', databaseUrl, authMode: 'demo', secretary: { mode: 'off' } }), /数据库连接或迁移未就绪/); }
+      finally { await db.$executeRawUnsafe(`ALTER TABLE "${schema}".hidden_shared_workspaces RENAME TO shared_workspaces`); }
+    });
     await t.test('复盘重启后保留，缺复盘表时就绪检查拒绝启动', async () => {
       const a = await user('持久复盘');
       const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);

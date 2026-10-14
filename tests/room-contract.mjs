@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-const fixtureNow = Date.now();
-const roomDate = days => new Date(fixtureNow + 8 * 3600_000 + days * 86400_000).toISOString().slice(0, 10);
-export const sampleRoomDates = [roomDate(2), roomDate(3), roomDate(4)];
-export const sampleRoom = { title: '虚构周末打球', goal: '约一次共同活动', dateFrom: sampleRoomDates[0], dateTo: sampleRoomDates[2], startTime: '09:00', endTime: '18:00', durationMinutes: 60 };
+// Capture one Beijing day for the suite so samples stay in the future even when run after October 2026.
+const beijingDay = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+const dayAt = offset => new Date(Date.parse(`${beijingDay}T00:00:00Z`) + offset * 86400_000).toISOString().slice(0, 10);
+export const sampleRoomDates = [dayAt(2), dayAt(3), dayAt(4)];
+export const sampleRoom = { title: '虚构课程讨论', goal: '约一次小组学习活动', dateFrom: sampleRoomDates[0], dateTo: sampleRoomDates[2], startTime: '09:00', endTime: '18:00', durationMinutes: 60 };
 export async function roomContract(t, call, user) {
   await t.test('创建、邀请码加入、重复加入与非成员隔离；DTO 不泄漏身份和个人数据', async () => {
     const a = await user('圆桌甲'), b = await user('圆桌乙'), c = await user('旁观者');
@@ -81,7 +82,7 @@ export async function roomContract(t, call, user) {
   });
   await t.test('日期、时长、活动目标和邀请码格式校验', async () => {
     const a = await user('圆桌校验');
-    for (const input of [{}, { ...sampleRoom, goal: ' ' }, { ...sampleRoom, title: '字'.repeat(61) }, { ...sampleRoom, goal: '字'.repeat(501) }, { ...sampleRoom, dateFrom: '2026-02-30' }, { ...sampleRoom, dateTo: roomDate(1) }, { ...sampleRoom, dateTo: roomDate(40) }, { ...sampleRoom, durationMinutes: 61 }, { ...sampleRoom, durationMinutes: 0 }, { ...sampleRoom, durationMinutes: 300 }, { ...sampleRoom, endTime: '09:30' }]) {
+    for (const input of [{}, { ...sampleRoom, goal: ' ' }, { ...sampleRoom, title: '字'.repeat(61) }, { ...sampleRoom, goal: '字'.repeat(501) }, { ...sampleRoom, dateFrom: '2026-02-30' }, { ...sampleRoom, dateTo: dayAt(1) }, { ...sampleRoom, dateTo: dayAt(34) }, { ...sampleRoom, durationMinutes: 61 }, { ...sampleRoom, durationMinutes: 0 }, { ...sampleRoom, durationMinutes: 300 }, { ...sampleRoom, endTime: '09:30' }]) {
       assert.equal((await call('/roundtables', 'POST', a.token, input)).status, 400);
     }
     for (const value of [{}, { code: '' }, { code: 'A'.repeat(20), userId: a.user.id }]) assert.equal((await call('/roundtables/join', 'POST', a.token, value)).status, 400);

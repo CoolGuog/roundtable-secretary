@@ -74,7 +74,7 @@ function pushSlots(slots: Slot[], date: string, segmentStart: number, segmentEnd
   const stepMs = STEP_MINUTES * 60_000;
   let taken = 0;
   for (let start = segmentStart; start + durationMs <= segmentEnd && taken < PER_SEGMENT; start += stepMs) {
-    if (start < now) continue;
+    if (start <= now) continue;
     const end = start + durationMs;
     slots.push({ date, startTime: format(start), endTime: format(end) });
     if (slots.length >= limit) break;
@@ -124,19 +124,22 @@ export function availabilityOf(room: NegotiationRoom, busy: Interval[], now = ne
   const coverage = { shared: room.members.filter(member => member.shareBusy).length, total: room.members.length };
   const window = { dateFrom: room.dateFrom, dateTo: room.dateTo, startTime: room.startTime, endTime: room.endTime };
   const empty = (reason: string): Availability => ({ slots: [], durationMinutes: room.durationMinutes, window, coverage, reason, note: null });
-  if (coverage.total < 2) return empty(noSlotReason(room, coverage));
-  if (coverage.shared === 0) return empty(noSlotReason(room, coverage));
+  if (coverage.total < 2) return empty(noSlotReason(room, coverage, now));
+  if (coverage.shared === 0) return empty(noSlotReason(room, coverage, now));
   const slots = findSlots(room, busy, now);
   const note = coverage.shared < coverage.total && slots.length > 0
     ? `还有 ${coverage.total - coverage.shared} 位成员未授权忙闲，其安排未纳入计算，结果可能与其已有安排冲突` : null;
-  return { slots, durationMinutes: room.durationMinutes, window, coverage, reason: slots.length ? null : noSlotReason(room, coverage), note };
+  return { slots, durationMinutes: room.durationMinutes, window, coverage, reason: slots.length ? null : noSlotReason(room, coverage, now), note };
 }
 
-export function noSlotReason(window: NegotiationRoom, coverage: { shared: number; total: number }): string {
+export function noSlotReason(window: NegotiationRoom, coverage: { shared: number; total: number }, now = new Date()): string {
   if (coverage.total < 2) return '圆桌只有一位成员，邀请其他人加入后才能协商共同时间';
   if (coverage.shared === 0) return '还没有成员授权忙闲信息，无法计算共同时间';
+  if (beijingInstant(window.dateTo, window.endTime).getTime() <= now.getTime() + window.durationMinutes * 60_000) {
+    return '圆桌时间范围内已没有足够的未来时间，请创建日期或时间范围更晚的圆桌';
+  }
   return `在 ${window.dateFrom} 至 ${window.dateTo} 的每日 ${window.startTime}–${window.endTime} 内，` +
-    `找不到 ${window.durationMinutes} 分钟的共同空档，可以放宽日期范围或时段后重试`;
+    `找不到 ${window.durationMinutes} 分钟的未来共同空档；已过去的时间不参与推荐，请选择更晚的日期或时段`;
 }
 
 export function validateProposalInput(value: unknown): Slot {
@@ -147,6 +150,8 @@ export function validateProposalInput(value: unknown): Slot {
   }
   const { date, startTime, endTime } = input;
   if (typeof date !== 'string' || !DATE_PATTERN.test(date)) throw new BadRequestException('日期格式不正确');
+  const day = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== date) throw new BadRequestException('日期不存在');
   if (typeof startTime !== 'string' || !TIME_PATTERN.test(startTime)) throw new BadRequestException('开始时间格式不正确');
   if (typeof endTime !== 'string' || !TIME_PATTERN.test(endTime)) throw new BadRequestException('结束时间格式不正确');
   if (startTime >= endTime) throw new BadRequestException('结束时间须晚于开始时间');
@@ -174,6 +179,16 @@ export const sameSlot = (a: Slot, b: Slot) => a.date === b.date && a.startTime =
 /** 两段区间是否重叠（半开区间 [start, end)） */
 export const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
 
+/** 推荐列表只展示部分候选；手动时间按实际区间验证，不受枚举步长或数量限制。 */
+export function validateSelectedSlot(room: NegotiationRoom, slot: Slot, busy: Interval[], now = Date.now()) {
+  if (room.members.length < 2) throw new BadRequestException('邀请其他成员加入后才能提出方案');
+  if (!withinWindow(room, slot)) throw new BadRequestException('请选择圆桌日期与每天时间窗口内的时段，且保持约定活动时长');
+  const start = beijingInstant(slot.date, slot.startTime).getTime();
+  const end = beijingInstant(slot.date, slot.endTime).getTime();
+  if (start <= now) throw new BadRequestException('请选择尚未开始的活动时间');
+  if (busy.some(item => overlaps(start, end, item.start, item.end))) throw new BadRequestException('所选时间与已授权成员的安排冲突，请换一个时间');
+}
+
 type StoredProposal = {
   id: string; roomId: string; date: string; startTime: string; endTime: string;
   roomVersion: number; status: ProposalStatus; createdById: string;
@@ -183,8 +198,8 @@ type StoredProposal = {
 
 export type NegotiationDeps = {
   room: (userId: string, roomId: string) => NegotiationRoom;
-  arrangements: (userId: string) => { date: string; startTime: string; endTime: string }[];
-  createArrangements: (entries: { userId: string; value: ArrangementInput }[]) => void;
+  arrangements: (userId: string, from: string, to: string) => Promise<{ date: string; startTime: string; endTime: string; sourceRoomId?: string }[]>;
+  createArrangements: (entries: { userId: string; value: ArrangementInput; sourceRoomId: string }[]) => void;
   name: (userId: string) => string;
 };
 
@@ -203,12 +218,12 @@ export function isStale(proposal: Pick<StoredProposal, 'status' | 'expiresAt' | 
 }
 
 export class MemoryNegotiation implements NegotiationStore {
+  private decisionQueue: Promise<unknown> = Promise.resolve();
   private readonly proposals: StoredProposal[] = [];
   constructor(private readonly deps: NegotiationDeps) {}
-  private busy(room: NegotiationRoom): Interval[] {
-    return room.members
-      .filter(member => member.shareBusy)
-      .flatMap(member => this.deps.arrangements(member.userId).map(item => ({
+  private async busy(room: NegotiationRoom): Promise<Interval[]> {
+    const rows = await Promise.all(room.members.filter(member => member.shareBusy).map(member => this.deps.arrangements(member.userId, room.dateFrom, room.dateTo)));
+    return rows.flatMap(items => items.filter(item => item.sourceRoomId !== room.id).map(item => ({
         start: beijingInstant(item.date, item.startTime).getTime(),
         end: beijingInstant(item.date, item.endTime).getTime(),
       })));
@@ -224,20 +239,18 @@ export class MemoryNegotiation implements NegotiationStore {
   private latest(roomId: string) {
     return [...this.proposals].reverse().find(item => item.roomId === roomId) ?? null;
   }
-  availability(userId: string, roomId: string): Availability {
+  async availability(userId: string, roomId: string): Promise<Availability> {
     const room = this.deps.room(userId, roomId);
     if (room.status !== 'OPEN') throw new BadRequestException('圆桌已关闭，不能再协商');
-    return availabilityOf(room, this.busy(room));
+    return availabilityOf(room, await this.busy(room));
   }
-  createProposal(userId: string, roomId: string, value: unknown): Proposal {
+  async createProposal(userId: string, roomId: string, value: unknown): Promise<Proposal> {
     const room = this.deps.room(userId, roomId);
     if (room.status !== 'OPEN') throw new BadRequestException('圆桌已关闭，不能再协商');
     const slot = validateProposalInput(value);
-    if (!withinWindow(room, slot)) throw new BadRequestException('所选时段不在圆桌约定的日期与时间窗口内');
-    const available = this.availability(userId, roomId);
-    if (!available.slots.some(item => sameSlot(item, slot))) {
-      throw new BadRequestException(available.reason ?? '该时段已不是当前的共同可用时间，请重新计算后选择');
-    }
+    validateSelectedSlot(room, slot, await this.busy(room));
+    const current = this.deps.room(userId, roomId);
+    if (current.status !== 'OPEN' || current.version !== room.version) throw new BadRequestException('圆桌信息已变化，请重新协商');
     const existing = this.open(roomId);
     if (existing && isStale(existing, room.version)) existing.status = 'EXPIRED';
     if (this.open(roomId)) throw new BadRequestException('已有一个待确认方案，请先完成确认或撤回');
@@ -254,7 +267,12 @@ export class MemoryNegotiation implements NegotiationStore {
     if (isStale(proposal, room.version)) proposal.status = 'EXPIRED';
     return this.dto(proposal, room, userId);
   }
-  decide(userId: string, roomId: string, proposalId: string, value: unknown): Proposal {
+  async decide(userId: string, roomId: string, proposalId: string, value: unknown): Promise<Proposal> {
+    const result = this.decisionQueue.then(() => this.decideNow(userId, roomId, proposalId, value));
+    this.decisionQueue = result.catch(() => undefined);
+    return result;
+  }
+  private async decideNow(userId: string, roomId: string, proposalId: string, value: unknown): Promise<Proposal> {
     const decision = validateDecision(value);
     const room = this.deps.room(userId, roomId);
     const proposal = this.proposals.find(item => item.id === proposalId && item.roomId === roomId);
@@ -272,11 +290,12 @@ export class MemoryNegotiation implements NegotiationStore {
       const end = beijingInstant(proposal.date, proposal.endTime).getTime();
       // 写入前统一检查：任何成员在该时段已有安排都整体放弃，避免写出互相冲突的日程。
       for (const member of room.members) {
-        const conflict = this.deps.arrangements(member.userId).some(item =>
+        const conflict = (await this.deps.arrangements(member.userId, proposal.date, proposal.date)).filter(item => item.sourceRoomId !== room.id).some(item =>
           overlaps(start, end, beijingInstant(item.date, item.startTime).getTime(), beijingInstant(item.date, item.endTime).getTime()));
         if (conflict) throw new BadRequestException('有成员在该时段已有其他安排，请重新选择时间');
       }
-      this.deps.createArrangements(room.members.map(member => ({ userId: member.userId,
+      if (proposal.status !== 'OPEN' || isStale(proposal, this.deps.room(userId, roomId).version)) throw new BadRequestException('圆桌信息或方案已变化，请重新协商');
+      this.deps.createArrangements(room.members.map(member => ({ userId: member.userId, sourceRoomId: room.id,
         value: { title: room.title, date: proposal.date, startTime: proposal.startTime, endTime: proposal.endTime } })));
       proposal.status = 'CONFIRMED';
       proposal.appliedAt = new Date();
