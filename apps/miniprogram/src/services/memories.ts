@@ -1,3 +1,4 @@
+import { readLocal, writeLocal } from './local-store';
 import { config } from './config';
 import { request } from './secretary';
 
@@ -16,7 +17,7 @@ function validate(input: MemoryInput): MemoryInput {
   return { category: input.category, label, content };
 }
 function localRecords(): PersonalMemory[] {
-  const records = wx.getStorageSync(dataKey);
+  const records = readLocal(dataKey);
   return Array.isArray(records) ? records : [];
 }
 export async function listMemories(): Promise<PersonalMemory[]> {
@@ -40,11 +41,11 @@ export async function saveMemory(input: MemoryInput, id?: string): Promise<void>
     if (records.length >= 100) throw new Error('最多保存 100 条个人记忆');
     records.push({ ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, source: 'USER_INPUT', createdAt: now, updatedAt: now });
   }
-  wx.setStorageSync(dataKey, records);
+  writeLocal(dataKey, records);
 }
 export async function deleteMemory(id: string): Promise<void> {
   if (config.mode === 'api') { await request(`/me/memories/${encodeURIComponent(id)}`, 'DELETE'); return; }
   const records = localRecords();
   if (!records.some(item => item.id === id)) throw new Error('这条记忆已不存在，请刷新后重试');
-  wx.setStorageSync(dataKey, records.filter(item => item.id !== id));
+  writeLocal(dataKey, records.filter(item => item.id !== id));
 }

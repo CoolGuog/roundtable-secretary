@@ -1,6 +1,7 @@
 import { Room, listRooms, createRoom, joinRoom, isLocalRoomMode } from '../../services/roundtables';
 import { today, modeLabel, errorMessage } from '../../services/secretary';
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: { rooms: [] as Room[], loading: false, busy: false, error: '', form: '', title: '', goal: '', dateFrom: today(), dateTo: today(), startTime: '09:00', endTime: '21:00',
     durationIndex: 3, durations: Array.from({ length: 16 }, (_, i) => `${(i + 1) * 15} 分钟`), code: '', local: isLocalRoomMode(), mode: modeLabel() },
   onShow() { this.setData({ form: '', code: '' }); void this.reload(); },

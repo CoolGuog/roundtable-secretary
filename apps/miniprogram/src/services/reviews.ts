@@ -1,3 +1,4 @@
+import { readLocal, writeLocal } from './local-store';
 import { request, today } from './secretary';
 import { getRoom, isLocalRoomMode } from './roundtables';
 export type ReviewParticipant = { memberId: string; name: string; isMe: boolean; active: boolean };
@@ -8,7 +9,7 @@ export type ReviewVote = { memberId: string; decision: 'PENDING' | 'ACCEPT' | 'D
 export type ReviewRevision = Omit<ReviewInput, 'version'> & { revision: number; createdAt: string; status: 'DRAFT' | 'PENDING' | 'DISPUTED' | 'AGREED'; votes: ReviewVote[]; events: ReviewVote[] };
 export type ReviewView = { version: number; canEdit: boolean; canVote: boolean; participants: ReviewParticipant[]; revisions: ReviewRevision[] };
 const key = 'roundtable.demo.reviews.v1';
-function records(): Array<{ roomId: string; view: ReviewView }> { const value = wx.getStorageSync(key); return Array.isArray(value) ? value : []; }
+function records(): Array<{ roomId: string; view: ReviewView }> { const value = readLocal(key); return Array.isArray(value) ? value : []; }
 export function validateReview(value: ReviewInput): string {
   const date = new Date(value.date + 'T00:00:00Z');
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(value.date) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value.date || value.date > today()) return '请选择今天或之前的有效会议日期';
@@ -46,7 +47,7 @@ export async function saveReview(roomId: string, input: ReviewInput): Promise<Re
   if ((index < 0 ? 0 : all[index].view.version) !== input.version) throw new Error('复盘已更新，请刷新核对后重新操作');
   if (index < 0) { if (all.length >= 100) throw new Error('本机最多保存 100 份会议复盘'); all.push({ roomId, view }); }
   else all[index] = { roomId, view };
-  wx.setStorageSync(key, all); return view;
+  writeLocal(key, all); return view;
 }
 export async function voteReview(roomId: string, version: number, decision: 'ACCEPT' | 'DISPUTE', comment: string): Promise<ReviewView> {
   if (isLocalRoomMode()) throw new Error('本机草稿不能代替其他成员确认，逐人表态需要后台模式');

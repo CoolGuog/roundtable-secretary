@@ -1,3 +1,4 @@
+import { readLocal, writeLocal } from './local-store';
 import { getRoom, isLocalRoomMode } from './roundtables';
 import { getReview } from './reviews';
 
@@ -14,7 +15,7 @@ export type ActionCandidate = { source: string; sourceLabel: string; title: stri
 export const taskLabels: Record<TaskState, string> = { TODO: '待开始', DOING: '进行中', REVIEW: '待验收', DONE: '已完成' };
 const key = 'roundtable.demo.meeting-work.v1';
 function localOnly() { if (!isLocalRoomMode()) throw new Error('会议工作台目前仅支持本机记录，后台任务同步尚未接入'); }
-function all(): MeetingWork[] { const value = wx.getStorageSync(key); return Array.isArray(value) ? value : []; }
+function all(): MeetingWork[] { const value = readLocal(key); return Array.isArray(value) ? value : []; }
 function empty(roomId: string): MeetingWork { return { roomId, version: 0, tasks: [], preparation: [], minutes: [] }; }
 const id = () => `work-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const bounded = (value: string, max: number, label: string, required = true) => {
@@ -42,7 +43,7 @@ async function mutate(roomId: string, version: number, operation: (work: Meeting
   if (JSON.stringify(work).length > 80_000) throw new Error('本圆桌记录已达容量上限，本次操作未保存');
   if (index < 0) { if (records.length >= 100) throw new Error('本机最多保存 100 个会议工作台'); records.push(work); }
   else records[index] = work;
-  wx.setStorageSync(key, records); return work;
+  writeLocal(key, records); return work;
 }
 function log(task: WorkTask, label: string, note = '') {
   if (task.history.length >= 30) throw new Error('这条任务的操作记录已达 30 条上限');

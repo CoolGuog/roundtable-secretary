@@ -1,10 +1,11 @@
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">MEETING WORKSPACE</text><view class="title">把下一步，做完。</view>
   <view class="subtitle">{{room.title || '会前准备、会议记录和会后行动'}} </view>
   <view class="notice">本机工作台：负责人和验收均为你手动记录，不代表伙伴收到任务或已确认。当前不跨设备同步，也不发送通知。</view>
   <view wx:if="{{!local}}" class="empty">后台任务同步尚未接入。请在本机演示模式使用工作台。</view>
   <block wx:if="{{local}}">
-    <view wx:if="{{error}}" class="error">{{error}}</view>
+
     <button class="secondary refresh-work" bindtap="reload" disabled="{{busy || loading}}">{{loading ? '读取中…' : '刷新工作台'}}</button>
     <view class="work-tabs"><button wx:for="{{tabs}}" wx:key="id" class="work-tab {{tab === item.id ? 'active' : ''}}" data-tab="{{item.id}}" bindtap="onTab" disabled="{{busy || editor || actionId || importKind}}">{{item.name}}</button></view>
     <block wx:if="{{work}}">

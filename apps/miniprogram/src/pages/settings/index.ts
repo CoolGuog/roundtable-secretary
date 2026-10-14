@@ -1,7 +1,11 @@
 import { clearLocalDemo, modeLabel, loginEnabled, hasLogin, login, logout, errorMessage } from '../../services/secretary';
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: { mode: modeLabel(), loginEnabled: loginEnabled(), loggedIn: hasLogin(), busy: false, error: '' },
   onShow() { this.setData({ loggedIn: hasLogin() }); },
+  openModelStatus() { wx.navigateTo({ url: '/pages/model-status/index' }); },
+  openNotifications() { wx.navigateTo({ url: '/pages/notifications/index' }); },
+  openBackup() { wx.navigateTo({ url: '/pages/backup/index' }); },
   openMemories() { wx.navigateTo({ url: '/pages/memories/index' }); },
   async signIn() {
     if (this.data.busy) return;
@@ -19,7 +23,10 @@ Page({
   },
   clear() {
     wx.showModal({ title: '清除本机演示数据？', content: '只清除本机安排、记忆、圆桌、复盘、工作台（任务、清单、纪要）与演示会话，不会删除服务器记录。',
-      success(result) { if (result.confirm) { clearLocalDemo(); wx.showToast({ title: '已清除', icon: 'success' }); } },
+      success: result => { if (result.confirm) {
+        try { clearLocalDemo(); wx.showToast({ title: '已清除', icon: 'success' }); }
+        catch (error) { this.setData({ error: errorMessage(error) }); }
+      } },
     });
   },
 });

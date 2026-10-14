@@ -3,6 +3,7 @@ import { errorMessage, modeLabel } from '../../services/secretary';
 
 type MemoryView = PersonalMemory & { categoryName: string; sourceName: string; updatedLabel: string };
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: {
     items: [] as MemoryView[], loading: false, busy: false, error: '', mode: modeLabel(), categoryNames,
     editorOpen: false, editingId: '', label: '', content: '', categoryIndex: 0,

@@ -1,3 +1,4 @@
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">MEETING REVIEW</text><view class="title">把经过说清楚。</view>
   <view class="subtitle">记录会议未举办的原因，明确责任与下一步。</view>
@@ -45,6 +46,6 @@
       <button class="secondary dispute-review" data-decision="DISPUTE" bindtap="vote" disabled="{{busy || loading || !fresh}}">我有异议，保留理由</button>
       <view class="muted spaced">只记录你本人的意见。更改意见也会保留之前的表态。</view>
     </view>
-    <button wx:if="{{local && view.revisions.length && !editor}}" class="secondary review-open-work" bindtap="openWork" disabled="{{busy || loading}}">到工作台跟进补救任务</button>
+    <button wx:if="{{view.revisions.length && !editor}}" class="secondary review-open-work" bindtap="openWork" disabled="{{busy || loading}}">到工作台跟进补救任务</button>
   </block>
 </view>

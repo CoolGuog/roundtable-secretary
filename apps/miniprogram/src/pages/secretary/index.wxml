@@ -1,3 +1,33 @@
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error || statusError}}" />
+<template name="arrangement-form">
+    <view class="card-title">{{formSource === 'manual' ? '记录个人安排' : '确认这条安排'}}</view>
+    <text class="field-label">安排名称</text>
+    <input class="field draft-title" disabled="{{saving || drafting}}" value="{{title}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onTitle" />
+    <text class="field-label">日期</text>
+    <picker class="draft-date" disabled="{{saving || drafting}}" mode="date" value="{{date}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">{{date || '请选择日期'}}</view></picker>
+    <view class="two-col">
+      <view><text class="field-label">开始</text><picker class="draft-start" disabled="{{saving || drafting}}" mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime || '请选择开始时间'}}</view></picker></view>
+      <view><text class="field-label">结束</text><picker class="draft-end" disabled="{{saving || drafting}}" mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime || '请选择结束时间'}}</view></picker></view>
+    </view>
+    <text class="field-label">重复方式</text>
+    <picker class="repeat-kind" range="{{repeatOptions}}" value="{{repeatIndex}}" bindchange="onRepeat" disabled="{{saving || drafting}}"><view class="field">{{repeatOptions[repeatIndex]}}</view></picker>
+    <checkbox-group wx:if="{{repeatKind === 'weekly'}}" class="repeat-weekdays" bindchange="onRepeatDays">
+      <label wx:for="{{weekdays}}" wx:key="value"><checkbox value="{{item.value}}" checked="{{item.checked}}" disabled="{{saving || drafting}}" />{{item.label}}</label>
+    </checkbox-group>
+    <view wx:if="{{repeatKind === 'weekly'}}" class="muted spaced">从所选日期起，在勾选的星期重复；到结束日期停止。</view>
+    <view wx:if="{{repeatKind !== 'once'}}"><text class="field-label">重复结束日期</text><picker mode="date" value="{{repeatUntil}}" start="{{date}}" end="2099-12-31" bindchange="onRepeatUntil" disabled="{{saving || drafting}}"><view class="field">{{repeatUntil || '请选择结束日期'}}</view></picker></view>
+    <view wx:if="{{repeatKind !== 'once'}}" class="muted spaced">保存前检查开始日起最多 31 天的冲突；更远的安排可在日程日期筛选中查看，圆桌确认会检查实际活动日期。</view>
+    <view class="muted spaced">按北京时间（UTC+8）记录。当前请只填写虚构的演示安排。</view>
+    <view class="conflict-notice" wx:if="{{conflicts.length}}">
+      <view class="card-title">与 {{conflicts.length}} 条安排时间重叠</view>
+      <view class="conflict-item" wx:for="{{conflicts}}" wx:key="id"><view>{{item.title}}</view><text>{{item.date}} · {{item.startTime}}—{{item.endTime}}</text></view>
+      <view class="spaced">尚未保存。可修改上方时间，或确认仍要保留这条安排。</view>
+    </view>
+    <view class="muted spaced" wx:if="{{checking}}">正在检查你的日程…</view>
+    <button wx:if="{{conflicts.length}}" class="primary confirm-overlap" loading="{{saving || checking}}" disabled="{{saving || drafting || checking}}" bindtap="confirmOverlap">仍然保存这条安排</button>
+    <button wx:else class="primary save-draft" loading="{{saving || checking}}" disabled="{{saving || drafting || checking}}" bindtap="save">{{formSource === 'batch' ? '更新草稿（尚不写入）' : '确认保存'}}</button>
+    <button class="secondary" disabled="{{saving}}" bindtap="closeForm">稍后再填</button>
+</template>
 <view class="page">
   <view class="row"><text class="eyebrow">ROUND TABLE</text><text class="badge">{{mode}}</text></view>
   <view class="title">先说说，<view>你的安排。</view></view>
@@ -7,54 +37,80 @@
       <view class="avatar"><view class="dot d1"></view><view class="dot d2"></view><view class="dot d3"></view><view class="dot d4"></view><view class="table"></view></view>
       <view class="intro-text"><view class="card-title">你的秘书 · 小圆</view><view class="muted spaced">先记下一条安排，建立你的个人日程。</view></view>
     </view>
-    <button class="primary" bindtap="openForm">＋ 记一条个人安排</button>
-    <view class="saved row" bindtap="openCalendar"><text>已保存 {{count}} 条安排</text><text>查看日程 →</text></view>
+    <button class="primary" bindtap="openForm" disabled="{{saving || drafting}}">＋ 记一条个人安排</button>
+    <view class="manual-form" wx:if="{{showForm && formSource === 'manual'}}">
+      <template is="arrangement-form" data="{{formSource, title, date, startTime, endTime, saving, drafting, conflicts, checking, repeatOptions, repeatIndex, repeatKind, repeatUntil, weekdays}}" />
+    </view>
+    <view class="saved row" bindtap="openCalendar"><text>日程列表 {{count}} 条</text><text>查看日程 →</text></view>
   </view>
   <view class="card">
     <view class="card-title">和小圆说说安排</view>
     <view wx:if="{{statusLoading}}" class="muted spaced">正在读取秘书状态…</view>
     <view wx:if="{{secretaryStatus}}" class="notice">{{secretaryStatus.message}}</view>
-    <view wx:if="{{statusError}}" class="error">{{statusError}}</view>
+
     <button wx:if="{{statusError}}" class="secondary" bindtap="refreshStatus" disabled="{{statusLoading || drafting || saving}}">重新读取秘书状态</button>
     <scroll-view class="conversation" wx:if="{{messages.length}}" scroll-y="true" scroll-into-view="message-{{messages.length - 1}}">
       <view wx:for="{{messages}}" wx:key="id" id="message-{{item.id}}" class="message {{item.role}}"><view class="speaker">{{item.role === 'user' ? '你' : '小圆'}}</view><text selectable="true">{{item.text}}</text></view>
     </scroll-view>
-    <textarea class="field area" value="{{utterance}}" maxlength="200" disabled="{{drafting || saving}}" placeholder="{{draft && secretaryStatus.mode === 'local' ? '补充信息，例如：明天 / 下午三点 / 持续一小时' : '例如：明天下午三点到四点和导师开会'}}" bindinput="onUtterance" />
+    <textarea class="field area" value="{{utterance}}" maxlength="{{secretaryStatus.mode === 'http' ? 3000 : 200}}" disabled="{{drafting || saving}}" placeholder="{{draft && secretaryStatus.mode === 'local' ? '补充信息，例如：明天 / 下午三点 / 持续一小时' : '可一次描述多件事，例如：工作日8:30—11:00上课，12:00—14:00午休。'}}" bindinput="onUtterance" />
     <button wx:if="{{draft && secretaryStatus.mode === 'local'}}" class="primary continue-draft" loading="{{drafting}}" disabled="{{drafting || saving || statusLoading || turns >= 6}}" bindtap="sendReply">补充这条安排</button>
     <button wx:else class="primary generate-draft" loading="{{drafting}}" disabled="{{drafting || saving || statusLoading || !secretaryStatus || !secretaryStatus.canGenerate}}" bindtap="generate">让秘书整理成草稿</button>
     <view wx:if="{{turns >= 6}}" class="muted spaced">可直接修改下方表单，或开始新安排。</view>
     <button wx:if="{{messages.length || drafting}}" class="secondary new-draft" disabled="{{saving}}" bindtap="resetDraft">开始新安排</button>
     <view class="muted spaced">只生成待确认的草稿，确认后才会写入你的日程。</view>
   </view>
+  <view class="card" wx:if="{{secretaryStatus.mode === 'http'}}">
+    <view class="card-title">从课表文件导入</view>
+    <view class="muted spaced">PNG/JPG、PDF（最多3页）、XLSX/UTF-8 CSV，每份不超过4MB。旧版XLS请另存为XLSX。</view>
+    <view class="two-col">
+      <button class="secondary" data-kind="image" bindtap="chooseCourseFile" disabled="{{extracting || drafting || saving}}">选择截图 · 直接看图</button>
+      <button class="secondary" data-kind="file" bindtap="chooseCourseFile" disabled="{{extracting || drafting || saving}}">选择聊天文件</button>
+    </view>
+    <view class="muted spaced" wx:if="{{extracting}}">正在本机后台识别，扫描PDF可能需要约一分钟…</view>
+    <view wx:if="{{courseFileName}}" class="muted spaced">{{courseFileName}}</view>
+    <view wx:for="{{courseNotes}}" wx:key="*this" class="notice">{{item}}</view>
+    <view wx:if="{{courseFileName}}">
+      <image wx:if="{{courseImagePath}}" src="{{courseImagePath}}" mode="widthFix" style="width:100%;border-radius:16rpx;" />
+      <view wx:else><text class="field-label">核对识别文字（可修改）</text>
+      <textarea class="field area" value="{{courseText}}" maxlength="12000" bindinput="onCourseText" disabled="{{drafting || saving || extracting}}" /></view>
+      <text class="field-label">学期与节次说明</text>
+      <textarea class="field area" value="{{courseContext}}" maxlength="1000" bindinput="onCourseContext" disabled="{{drafting || saving || extracting}}" placeholder="例如：第一周周一是2026-10-12，第1—2节08:30—10:00，本学期至2027-01-29。请按学校实际作息填写。" />
+      <view class="notice">学期日期会根据课表预填；无法推算时秋季默认9月1日开始，时长4个月。可在草稿中修改。单双周、离散周和调课暂不支持自动入库。</view>
+      <button class="primary" bindtap="generateCourses" disabled="{{extracting || drafting || saving}}" loading="{{drafting}}">{{courseImagePath ? '让模型直接看图整理' : '整理课程草稿'}}</button>
+    </view>
+  </view>
   <view class="card" wx:if="{{draft}}">
     <view class="card-title">{{draft.status === 'READY' ? '待确认草稿' : '还需补充信息'}}</view>
+    <view class="muted spaced">本次整理：{{draft.model}}</view>
     <view class="muted" wx:for="{{draft.reasons}}" wx:key="*this">· {{item}}</view>
     <view class="muted spaced" wx:if="{{draftMemoryNote}}">{{draftMemoryNote}}</view>
     <view class="muted spaced">{{draft.message}}</view>
   </view>
-  <view class="card" wx:if="{{showForm}}">
-    <view class="card-title">确认这条安排</view>
-    <text class="field-label">安排名称</text>
-    <input class="field draft-title" disabled="{{saving || drafting}}" value="{{title}}" maxlength="60" placeholder="例如：课程讨论练习" bindinput="onTitle" />
-    <text class="field-label">日期</text>
-    <picker class="draft-date" disabled="{{saving || drafting}}" mode="date" value="{{date}}" start="2020-01-01" end="2099-12-31" bindchange="onDate"><view class="field">{{date || '请选择日期'}}</view></picker>
-    <view class="two-col">
-      <view><text class="field-label">开始</text><picker class="draft-start" disabled="{{saving || drafting}}" mode="time" value="{{startTime}}" bindchange="onStart"><view class="field">{{startTime || '请选择开始时间'}}</view></picker></view>
-      <view><text class="field-label">结束</text><picker class="draft-end" disabled="{{saving || drafting}}" mode="time" value="{{endTime}}" bindchange="onEnd"><view class="field">{{endTime || '请选择结束时间'}}</view></picker></view>
-    </view>
-    <view class="muted spaced">按北京时间（UTC+8）记录。当前请只填写虚构的演示安排。</view>
-    <view class="conflict-notice" wx:if="{{conflicts.length}}">
-      <view class="card-title">与 {{conflicts.length}} 条安排时间重叠</view>
-      <view class="conflict-item" wx:for="{{conflicts}}" wx:key="id"><view>{{item.title}}</view><text>{{item.date}} · {{item.startTime}}—{{item.endTime}}</text></view>
-      <view class="spaced">尚未保存。可修改上方时间，或确认仍要保留这条安排。</view>
-    </view>
-    <view class="muted spaced" wx:if="{{checking}}">正在检查你的日程…</view>
-    <button wx:if="{{conflicts.length}}" class="primary confirm-overlap" loading="{{saving || checking}}" disabled="{{saving || drafting || checking}}" bindtap="confirmOverlap">仍然保存这条安排</button>
-    <button wx:else class="primary save-draft" loading="{{saving || checking}}" disabled="{{saving || drafting || checking}}" bindtap="save">确认保存</button>
-    <button class="secondary" disabled="{{saving}}" bindtap="closeForm">稍后再填</button>
+  <view class="card" wx:if="{{showForm && formSource === 'draft'}}">
+    <template is="arrangement-form" data="{{formSource, title, date, startTime, endTime, saving, drafting, conflicts, checking, repeatOptions, repeatIndex, repeatKind, repeatUntil, weekdays}}" />
   </view>
-  <view class="error" wx:if="{{error}}">{{error}}</view>
+
+
+  <view class="card" wx:if="{{courseBatch || batch.length || batchNotes.length}}">
+    <view class="card-title">{{courseBatch ? '识别成功 ' + recognizedCount + ' 条课程安排' : '核对安排 · ' + batch.length + ' 条'}}</view>
+    <view wx:if="{{courseBatch && courseFailures.length}}" class="notice">
+      <view class="card-title">未完整识别 / 未导入</view>
+      <view wx:for="{{courseFailures}}" wx:key="index" class="spaced">{{item.title}}：{{item.reason}}</view>
+    </view>
+    <view class="batch-item" wx:for="{{batch}}" wx:key="index">
+      <view class="row batch-heading"><view class="batch-name" data-index="{{index}}" bindtap="toggleBatch"><checkbox checked="{{item.selected}}" disabled="{{item.saved || saving || drafting}}" />{{item.title || '待填写名称'}}</view><text class="badge batch-status">{{item.saved ? '已保存' : item.recognitionIssue || item.status !== 'READY' ? '待补充' : '待确认'}}</text></view>
+      <view class="muted spaced">{{item.date || '请选择开始日期'}} · {{item.startTime || '待定'}}—{{item.endTime || '待定'}}</view>
+      <view class="muted spaced">{{item.repeatKind === 'once' ? '仅当天' : item.repeatKind === 'daily' ? '每天' : '每周固定'}}<text wx:if="{{item.repeatKind === 'weekly'}}">（<text wx:for="{{item.weekdays}}" wx:for-item="day" wx:key="*this">{{['日','一','二','三','四','五','六'][day]}} </text>）</text><text wx:if="{{item.repeatKind !== 'once'}}"> · 截至 {{item.until || '待设置'}}</text></view>
+      <view class="notice" wx:if="{{item.uncertain}}">保存结果待确认。请原样重试；本次运行内不会重复创建。重新编译前请先到日程核对。</view>
+      <button wx:if="{{!item.saved}}" class="secondary" data-index="{{index}}" bindtap="editBatch" disabled="{{saving || drafting || item.uncertain}}">修改 / 补充</button>
+    </view>
+    <button class="primary" bindtap="saveBatch" loading="{{saving}}" disabled="{{saving || drafting || showForm}}">确认写入勾选的安排</button>
+    <view class="muted spaced">保存前检查每条开始日起31天内的冲突。草稿仅在当前页面保留，离开或重新编译前请完成确认。</view>
+  </view>
+  <view id="batch-editor" class="card" wx:if="{{showForm && formSource === 'batch'}}">
+    <template is="arrangement-form" data="{{formSource, title, date, startTime, endTime, saving, drafting, conflicts, checking, repeatOptions, repeatIndex, repeatKind, repeatUntil, weekdays}}" />
+  </view>
   <view class="section-label">从个人安排，到共同决定</view>
   <view class="steps"><view class="step active"><text>01</text><view>建立个人日程</view></view><view class="step"><text>02</text><view>邀请朋友围桌</view></view><view class="step"><text>03</text><view>秘书协商安排</view></view></view>
-  <view class="notice">本机规则支持分步补充安排，不是 AI 对话；对话只保留在当前页面，确认保存的日程才写入本机。后台模式支持单轮模型草稿与圆桌时间协商。</view>
+  <view class="notice">本机规则支持分步补充安排，不是 AI 对话；对话只保留在当前页面，确认保存的日程才写入本机。大模型模式支持批量整理日程，逐条修改并确认后写入；圆桌时间协商仍由既有规则执行。</view>
 </view>

@@ -1,3 +1,4 @@
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">YOUR SECRETARY</text><view class="title">由你掌握。</view>
   <view class="subtitle">当前版本 0.1 · {{mode}}</view>
@@ -7,9 +8,12 @@
     <view class="subtitle spaced">{{loggedIn ? '已保存登录状态。日程随微信账号保存。' : '登录后查看和保存本人的日程。'}}</view>
     <button class="primary" wx:if="{{!loggedIn}}" loading="{{busy}}" disabled="{{busy}}" bindtap="signIn">微信登录</button>
     <button class="secondary" wx:else loading="{{busy}}" disabled="{{busy}}" bindtap="signOut">退出登录</button>
-    <view class="error" wx:if="{{error}}">{{error}}</view>
+
   </view>
-  <view class="card"><view class="row"><view class="card-title">模型连接</view><text class="badge">尚未开放</text></view><view class="subtitle spaced">密钥加密存储和调用隔离验证完成前，不收集真实 API Key。当前页面没有密钥输入入口。</view></view>
+  <view class="card"><view class="card-title">模型连接</view><view class="subtitle spaced">查看后台配置状态，用虚构内容手动检测连接。密钥由后台管理。</view><button class="secondary open-model-status" bindtap="openModelStatus">查看模型连接状态</button></view>
+  <view class="card"><view class="card-title">站内消息</view><view class="subtitle spaced">查看伙伴分派、提交与验收的最新进展。</view><button class="secondary open-notifications" bindtap="openNotifications">查看站内消息</button></view>
+  <view class="card"><view class="card-title">数据备份</view><view class="subtitle spaced">将本机日程和会议记录保存成文件，恢复前先检查内容。</view><button class="secondary open-backup" bindtap="openBackup">备份与恢复本机记录</button></view>
   <view class="card"><view class="card-title">关于这次演示</view><view class="subtitle spaced">本机模式在当前设备保存虚构安排。微信登录模式下，重新登录可找回本人日程；演示身份过期后无法自动找回。请只使用虚构数据。</view><button class="secondary" bindtap="clear">清除本机演示数据</button></view>
-  <view class="notice">模型连接与多人协商仍在建设中。当前仅用于本机开发验证。</view>
+  <view class="error" wx:if="{{error}}">{{error}}</view>
+  <view class="notice">本机记录与后台协作分开保存。正式上线和真实微信账号验收仍待完成。</view>
 </view>

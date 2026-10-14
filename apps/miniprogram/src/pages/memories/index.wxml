@@ -1,3 +1,4 @@
+<feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page">
   <text class="eyebrow">PERSONAL MEMORY</text>
   <view class="title">记住你的习惯。</view>
@@ -16,7 +17,7 @@
     <button class="primary save-memory" bindtap="save" loading="{{busy}}" disabled="{{busy || loading}}">保存记忆</button>
     <button class="secondary" bindtap="cancel" disabled="{{busy}}">取消</button>
   </view>
-  <view wx:if="{{error}}" class="error">{{error}}</view>
+
   <button wx:if="{{error && !editorOpen}}" class="secondary" bindtap="reload" disabled="{{busy || loading}}">重新加载</button>
   <view class="section-label">我的记忆 · {{items.length}} / 100</view>
   <view wx:if="{{loading}}" class="empty">正在读取…</view>

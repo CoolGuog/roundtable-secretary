@@ -20,3 +20,11 @@
 .conflict-notice .card-title { color: #775322; }
 .conflict-item { padding: 18rpx 0; border-bottom: 1rpx solid #e8d4b2; }
 .conflict-item text { font-size: 24rpx; }
+.manual-form { margin-top: 28rpx; padding-top: 28rpx; border-top: 1rpx solid #e7ebe5; }
+.repeat-weekdays { display: flex; flex-wrap: wrap; gap: 20rpx; margin: 24rpx 0; font-size: 26rpx; }
+.repeat-weekdays label { display: flex; align-items: center; }
+
+.batch-item { padding: 24rpx 0; border-bottom: 1rpx solid #e6ebe5; }
+.batch-heading { align-items: flex-start; gap: 16rpx; }
+.batch-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.batch-status { flex: 0 0 90rpx; width: 90rpx; height: 42rpx; line-height: 42rpx; padding: 0; box-sizing: border-box; text-align: center; white-space: nowrap; }

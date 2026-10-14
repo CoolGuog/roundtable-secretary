@@ -6,6 +6,7 @@ const decisions = { PENDING: '待表态', ACCEPT: '已确认', DISPUTE: '有异�
 type FormRow = { memberId: string; name: string; percent: string; reason: string; action: string };
 const integer = (value: string) => /^\d{1,3}$/.test(value) ? Number(value) : NaN;
 Page({
+  onFeedbackDismiss() { this.setData({ error: '' }); },
   data: {
     id: '', room: null as Room | null, view: null as ReviewView | null, local: isLocalRoomMode(),
     loading: false, busy: false, fresh: false, error: '', editor: false, showHistory: false,
@@ -15,7 +16,7 @@ Page({
   },
   _visible: false, _disposed: false, _epoch: 0,
   onLoad(options: Record<string, string | undefined>) { this.setData({ id: options.id || '' }); },
-  openWork() { if (this._visible && this.data.local && this.data.room && !this.data.busy && !this.data.editor) wx.navigateTo({ url: `/pages/meeting-work/index?id=${encodeURIComponent(this.data.id)}&tab=tasks` }); },
+  openWork() { if (this._visible && this.data.room && this.data.fresh && !this.data.loading && !this.data.busy && !this.data.editor) wx.navigateTo({ url: `/pages/${this.data.local ? 'meeting-work' : 'shared-work'}/index?id=${encodeURIComponent(this.data.id)}&tab=tasks` }); },
   onShow() { this._visible = true; void this.reload(); },
   onHide() { this._visible = false; this._epoch++; this.setData({ fresh: false }); },
   onUnload() { this.onHide(); this._disposed = true; },

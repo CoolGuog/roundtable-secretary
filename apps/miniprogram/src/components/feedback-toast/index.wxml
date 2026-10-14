@@ -1,0 +1,1 @@
+<view wx:if="{{visible}}" class="overlay" role="alert"><view class="message" bindtap="dismiss">{{text}}</view></view>

@@ -1,3 +1,4 @@
+import { readLocal, writeLocal } from './local-store';
 import { config } from './config';
 import { request } from './secretary';
 export interface RoomInput { title: string; goal: string; dateFrom: string; dateTo: string; startTime: string; endTime: string; durationMinutes: number; }
@@ -5,7 +6,7 @@ export interface RoomMember { id: string; name: string; role: 'OWNER' | 'MEMBER'
 export interface Room extends RoomInput { id: string; status: 'OPEN' | 'CLOSED'; version: number; createdAt: string; isOwner: boolean; members: RoomMember[]; inviteCode?: string; inviteExpiresAt?: string; }
 const dataKey = 'roundtable.demo.rooms.v1';
 export function isLocalRoomMode() { return config.mode === 'local'; }
-function records(): Room[] { const value = wx.getStorageSync(dataKey); return Array.isArray(value) ? value : []; }
+function records(): Room[] { const value = readLocal(dataKey); return Array.isArray(value) ? value : []; }
 function validate(input: RoomInput): RoomInput {
   if (!input.title.trim() || input.title.trim().length > 60) throw new Error('名称须为 1 至 60 字');
   if (!input.goal.trim() || input.goal.trim().length > 500) throw new Error('目标须为 1 至 500 字');
@@ -52,7 +53,7 @@ export async function createRoom(input: RoomInput): Promise<Room> {
   if (all.filter(room => room.status === 'OPEN').length >= 20) throw new Error('最多同时参与 20 个进行中的圆桌');
   const room: Room = { ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'OPEN', version: 1, createdAt: new Date().toISOString(), isOwner: true,
     members: [{ id: 'local-self', name: '本机演示用户', role: 'OWNER', isMe: true, shareBusy: false, consentUpdatedAt: null }] };
-  all.push(room); wx.setStorageSync(dataKey, all); return room;
+  all.push(room); writeLocal(dataKey, all); return room;
 }
 /** 共同可用时间。只返回时段，不含任何成员的日程标题。 */
 export async function loadAvailability(id: string): Promise<Availability> {
@@ -98,5 +99,5 @@ export async function roomAction(id: string, action: 'consent' | 'rotate' | 'clo
   if (action === 'consent') { room.members[0].shareBusy = value === true; room.members[0].consentUpdatedAt = new Date().toISOString(); }
   else if (action === 'close') { room.status = 'CLOSED'; room.members[0].shareBusy = false; room.members[0].consentUpdatedAt = new Date().toISOString(); }
   else throw new Error('此操作需要后台模式');
-  room.version++; wx.setStorageSync(dataKey, all);
+  room.version++; writeLocal(dataKey, all);
 }
