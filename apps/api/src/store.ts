@@ -1,3 +1,4 @@
+import type { SharedWorkStore } from './shared-work';
 import { BadRequestException } from '@nestjs/common';
 import type { PersonalMemory } from './memory';
 import type { NegotiationStore } from './negotiation';
@@ -9,6 +10,7 @@ export type Arrangement = ArrangementInput & { id: string; createdAt: string };
 export type User = { id: string; name: string; secretaryName: string };
 export const STORE = Symbol('personal-store');
 export interface PersonalStore {
+  readonly work: SharedWorkStore;
   readonly rooms: RoomStore;
   readonly reviews: ReviewStore;
   /** 共同可用时间与方案确认（第 15、16 步） */
@@ -19,10 +21,10 @@ export interface PersonalStore {
   authenticate(token: string): string | Promise<string>;
   revokeSession(token: string): void | Promise<void>;
   profile(userId: string): User | Promise<User>;
-  list(userId: string): Arrangement[] | Promise<Arrangement[]>;
-  create(userId: string, value: unknown, requestId?: unknown): Arrangement | Promise<Arrangement>;
-  update(userId: string, id: string, value: unknown): Arrangement | Promise<Arrangement>;
-  remove(userId: string, id: string): void | Promise<void>;
+  list(userId: string, from?: string, to?: string): Arrangement[] | Promise<Arrangement[]>;
+  create(userId: string, value: unknown, requestId?: unknown): unknown;
+  update(userId: string, id: string, value: unknown): unknown;
+  remove(userId: string, id: string, scope?: string): void | Promise<void>;
   listMemories(userId: string): PersonalMemory[] | Promise<PersonalMemory[]>;
   createMemory(userId: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;
   updateMemory(userId: string, id: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;

@@ -1,3 +1,4 @@
+import { PostgresSharedWork } from './postgres-shared-work';
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma, PrismaClient, Arrangement as DbArrangement, PersonalMemory as DbMemory } from '@prisma/client';
 import { PersonalMemory, validateMemory } from './memory';
@@ -5,9 +6,11 @@ import { PostgresNegotiation } from './postgres-negotiation';
 import { PostgresRooms } from './postgres-rooms';
 import { PostgresReviews } from './postgres-reviews';
 import { createHash, randomBytes } from 'node:crypto';
-import { Arrangement, PersonalStore, validateArrangement, validateArrangementPatch, validateName } from './store';
+import { Arrangement, PersonalStore, inputObject, validateArrangement, validateArrangementPatch, validateName } from './store';
 import { TIME_ZONE, beijingDate, beijingInstant, beijingTime } from './time';
 import { arrangementFingerprint, assertReplay, requestKey } from './arrangement-request';
+import { RepeatedArrangements } from './repeated-arrangements';
+import { repeatWindow } from './repeat-engine';
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,10 +26,14 @@ function toDto(item: DbArrangement): Arrangement {
 
 export class PostgresStore implements PersonalStore {
   readonly persistence = 'postgres' as const;
+  readonly work: PostgresSharedWork;
   readonly rooms: PostgresRooms;
   readonly reviews: PostgresReviews;
   readonly negotiation: PostgresNegotiation;
+  readonly repeated: RepeatedArrangements;
   private constructor(private readonly db: PrismaClient, private readonly wechatAppId?: string) {
+    this.work = new PostgresSharedWork(db, operation => this.transaction(operation), wechatAppId);
+    this.repeated = new RepeatedArrangements(db);
     this.rooms = new PostgresRooms(db, operation => this.transaction(operation), wechatAppId);
     this.reviews = new PostgresReviews(db, operation => this.transaction(operation), wechatAppId);
     this.negotiation = new PostgresNegotiation(db, operation => this.transaction(operation), wechatAppId);
@@ -41,11 +48,13 @@ export class PostgresStore implements PersonalStore {
   async checkReady() {
     // 只验证当前业务使用的表与列，不读取个人数据；索引、约束与迁移历史仍需部署时核对。
     await this.db.$transaction([
+      this.db.$queryRaw`SELECT room_id, document, updated_at FROM shared_workspaces LIMIT 0`,
+      this.db.$queryRaw`SELECT id, owner_id, document, request_key, fingerprint FROM recurring_arrangements LIMIT 0`,
       this.db.$queryRaw`SELECT room_id, document, updated_at FROM meeting_reviews LIMIT 0`,
       this.db.$queryRaw`SELECT id, wx_app_id, wx_open_id, wx_union_id, display_name, secretary_name, created_at, updated_at FROM users LIMIT 0`,
       this.db.$queryRaw`SELECT token_hash, user_id, expires_at, created_at FROM demo_sessions LIMIT 0`,
       this.db.$queryRaw`SELECT token_hash, user_id, expires_at, created_at FROM wechat_sessions LIMIT 0`,
-      this.db.$queryRaw`SELECT id, owner_id, title, starts_at, ends_at, timezone, scope, created_at, updated_at FROM arrangements LIMIT 0`,
+      this.db.$queryRaw`SELECT id, owner_id, source_room_id, title, starts_at, ends_at, timezone, scope, created_at, updated_at FROM arrangements LIMIT 0`,
       this.db.$queryRaw`SELECT user_id, request_key, fingerprint, arrangement_id, created_at FROM arrangement_create_requests LIMIT 0`,
       this.db.$queryRaw`SELECT id, user_id, category, label, content, source, source_ref, created_at, updated_at FROM personal_memories LIMIT 0`,
       this.db.$queryRaw`SELECT id, owner_id, title, goal, date_from, date_to, start_time, end_time, duration_minutes, status, version,
@@ -114,10 +123,14 @@ export class PostgresStore implements PersonalStore {
     const user = await this.db.user.findUniqueOrThrow({ where: { id: userId } });
     return { id: user.id, name: user.displayName, secretaryName: user.secretaryName };
   }
-  async list(userId: string) {
-    return (await this.db.arrangement.findMany({ where: { ownerId: userId }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }] })).map(toDto);
+  async list(userId: string, from?: string, to?: string) {
+    let window;
+    try { window = repeatWindow(from, to); } catch { throw new BadRequestException('日期范围不正确'); }
+    return [...(await this.db.arrangement.findMany({ where: { ownerId: userId }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }] })).map(toDto),
+      ...await this.repeated.list(userId, window.from, window.to)].sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
   }
   async create(userId: string, value: unknown, requestId?: unknown) {
+    if (value && typeof value === 'object' && 'repeat' in value) return this.repeated.create(userId, value, requestId);
     const input = validateArrangement(value);
     const key = requestKey(requestId), fingerprint = arrangementFingerprint(input);
     return toDto(await this.transaction(async tx => {
@@ -137,6 +150,7 @@ export class PostgresStore implements PersonalStore {
     }));
   }
   async update(userId: string, id: string, value: unknown) {
+    if (id.startsWith('r:')) { const { scope = 'one', ...fields } = inputObject(value); return this.repeated.change(userId, id, scope, fields); }
     const patch = validateArrangementPatch(value);
     if (!UUID_PATTERN.test(id)) throw new NotFoundException('安排不存在');
     return toDto(await this.transaction(async tx => {
@@ -154,7 +168,8 @@ export class PostgresStore implements PersonalStore {
         endsAt: beijingInstant(merged.date, merged.endTime), timezone: TIME_ZONE } });
     }));
   }
-  async remove(userId: string, id: string) {
+  async remove(userId: string, id: string, scope = 'one') {
+    if (id.startsWith('r:')) return this.repeated.change(userId, id, scope, null);
     if (!UUID_PATTERN.test(id)) throw new NotFoundException('安排不存在');
     const result = await this.db.arrangement.deleteMany({ where: { id, ownerId: userId } });
     if (result.count === 0) throw new NotFoundException('安排不存在');
