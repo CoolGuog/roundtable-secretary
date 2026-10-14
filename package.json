@@ -4,6 +4,10 @@
   "private": true,
   "description": "圆桌秘书微信小程序与后台",
   "scripts": {
+    "demo:api": "npm run build:api && node scripts/start-demo.mjs",
+    "demo:mini": "npm run build:mini && node scripts/prepare-demo.mjs",
+    "demo:two": "npm run build:mini && node scripts/prepare-two-previews.mjs",
+    "demo:local": "npm run build:mini && node scripts/prepare-two-previews.mjs --local",
     "check:setup": "node scripts/check-setup.mjs",
     "check:api": "node scripts/check-api.mjs",
     "db:generate": "prisma generate",
@@ -20,23 +24,39 @@
     "build": "npm run build:api && npm run build:mini",
     "start:api": "node apps/api/dist/main.js",
     "test": "npm run build:api && node --test tests/*.test.mjs",
-    "check": "npm run typecheck && npm test && npm run build:mini"
+    "check": "npm run typecheck && npm test && npm run build:mini",
+    "model:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/configure-deepseek.ps1",
+    "model:check": "node scripts/check-model.mjs",
+    "model": "npm run model:setup"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
     "@nestjs/common": "^12.0.3",
     "@nestjs/core": "^12.0.3",
     "@nestjs/platform-express": "^12.0.3",
     "@prisma/client": "^6.19.3",
+    "@tesseract.js-data/chi_sim": "^1.0.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "pdfjs-dist": "^6.4.299",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "tesseract.js": "^7.0.0",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/yauzl": "^3.4.0",
     "miniprogram-api-typings": "^5.0.0",
     "prisma": "^6.19.3",
     "typescript": "^5.9.0"
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   }
 }
