@@ -1,0 +1,19 @@
+<view class="page">
+  <text class="eyebrow">YOUR BACKUP</text><view class="title">把记录，留一份。</view>
+  <view class="subtitle">保存日程、记忆、圆桌、复盘与工作台记录。</view>
+  <view class="notice">保存本机的单次与重复日程、记忆和会议记录，包含重复截止日期、单次调课与跳过记录。不包含登录凭证或服务器记录。文件为明文，请自行保管。恢复不会替伙伴确认责任或验收任务。</view>
+  <view class="error" wx:if="{{!local}}">当前是后台模式。请在本机模式使用此功能；后台记录需要独立备份。</view>
+  <block wx:if="{{local}}">
+    <view class="card"><view class="card-title">保存一份备份</view><view class="muted spaced">生成文件后，请保存到小程序以外的位置。每次重新生成会更新小程序内的临时备份。</view>
+      <button class="primary generate-backup" bindtap="generate" disabled="{{busy}}">生成当前数据备份</button>
+      <block wx:if="{{ready}}"><view class="muted spaced">{{exportedAt}}</view><view class="row record" wx:for="{{exportCounts}}" wx:key="name"><text>{{item.name}}</text><text>{{item.incoming}} 份</text></view><button class="secondary save-backup-file" bindtap="shareFile" disabled="{{busy}}">保存备份文件（微信选择器）</button><button class="secondary copy-backup" bindtap="copy" disabled="{{busy}}">复制备份文本（小型备份）</button></block>
+    </view>
+    <view class="card"><view class="card-title">从备份恢复</view><view class="muted spaced">只补入当前没有的记录，相同记录跳过。同编号内容有差异时停止导入，保留你当前的修改。支持旧版备份，旧文件没有重复日程时会保留当前课程。请先保存当前数据的备份。</view>
+      <button class="secondary choose-backup" bindtap="chooseFile" disabled="{{busy}}">从微信文件选择 JSON 备份</button>
+      <view class="field-label">或粘贴备份文本</view><textarea class="field backup-source" value="{{source}}" bindinput="input" maxlength="60000" disabled="{{busy}}" placeholder="粘贴完整备份；大型备份请使用文件" />
+      <button class="secondary preview-backup" bindtap="previewText" disabled="{{busy || !source}}">检查并预览</button>
+      <block wx:if="{{preview}}"><view class="notice">检查通过，尚未写入。重复日程按规则组计数，包含组内的单次修改与跳过记录；工作台按整份计数，包含内部任务、清单和纪要。</view><view class="record" wx:for="{{counts}}" wx:key="name"><view>{{item.name}}</view><view class="muted">新增 {{item.added}} 份 · 相同 {{item.skipped}} 份</view></view><button class="primary restore-backup" bindtap="restore" disabled="{{busy}}">{{added ? '确认补入 ' + added + ' 份记录' : '确认检查结果（无需新增）'}}</button><button class="secondary cancel-restore" bindtap="cancel" disabled="{{busy}}">取消导入</button></block>
+    </view>
+  </block>
+  <view class="error backup-error" wx:if="{{error}}">{{error}}</view><view class="notice backup-message" wx:if="{{message}}">{{message}}</view>
+</view>

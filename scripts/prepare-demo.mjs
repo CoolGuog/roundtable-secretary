@@ -1,0 +1,13 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const target = path.join(root, 'dist', 'demo', randomUUID());
+await fs.mkdir(target, { recursive: true });
+await fs.cp(path.join(root, 'dist/miniprogram'), path.join(target, 'dist/miniprogram'), { recursive: true });
+const project = JSON.parse(await fs.readFile(path.join(root, 'project.config.json'), 'utf8'));
+project.appid = 'touristappid'; project.projectname = 'roundtable-local-demo'; project.setting = { ...project.setting, urlCheck: false };
+await fs.writeFile(path.join(target, 'project.config.json'), JSON.stringify(project, null, 2));
+await fs.writeFile(path.join(target, 'dist/miniprogram/services/config.js'), 'exports.config = ' + JSON.stringify({ mode: 'api', authMode: 'demo', apiBase: 'http://127.0.0.1:3302' }) + ';\n');
+console.log(`开发者工具导入此独立游客项目：${target}\n须同时运行 npm run demo:api。仅本机模拟器使用；不修改主项目模式、AppID 或域名设置。`);
