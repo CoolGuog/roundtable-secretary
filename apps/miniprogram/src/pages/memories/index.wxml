@@ -4,7 +4,7 @@
   <view class="title">记住你的习惯。</view>
   <view class="subtitle">偏好、限制与备忘，都由你管理。</view>
   <view class="muted spaced">{{mode}}</view>
-  <view class="notice">这些记录仅供本人查看。目前尚未用于自动安排或圆桌协商。</view>
+  <view class="notice">记录原文仅供本人查看。后台秘书可使用偏好与限制整理草稿；圆桌协商需你单独授权，最多向模型发送20条偏好或限制（每条最多200字），不发送备忘。其他成员看不到原文。</view>
   <button wx:if="{{!editorOpen}}" class="primary add-memory" bindtap="add" disabled="{{busy || loading || items.length >= 100}}">新增记忆</button>
   <view wx:if="{{editorOpen}}" class="card editor">
     <view class="card-title">{{editingId ? '编辑记忆' : '新增记忆'}}</view>

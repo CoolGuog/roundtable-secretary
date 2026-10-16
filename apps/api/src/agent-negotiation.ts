@@ -117,7 +117,7 @@ export class AgentNegotiation {
             tools.read_busy=await this.busy(consent,room,slots);
             run.events.push({speaker,round,text:'调用忙闲工具，检查主人在候选时段是否有安排'});
           } else if(action.action==='read_preferences') {
-            tools.read_preferences=(await this.store.listMemories(consent.userId)).filter(m=>m.category!=='NOTE').slice(0,20).map(m=>({category:m.category,content:m.content.slice(0,200)}));
+            tools.read_preferences=(await this.store.listMemories(consent.userId)).filter(m=>m.category!=='NOTE').slice(0,20).map(m=>({category:m.category,label:m.label,content:m.content.slice(0,200)}));
             run.events.push({speaker,round,text:'调用个人偏好工具，结果仅供本人的秘书使用'});
           } else if(action.action==='answer') {
             if(!tools.read_busy || !tools.read_preferences || !['accept','counter','decline'].includes(String(action.decision)))throw new Error('缺少工具结果');
@@ -139,7 +139,8 @@ export class AgentNegotiation {
         histories[memberIndex].push({choice:selected,decision:selected===null?'decline':selected===offer?'accept':'counter'});
         if(selected===null){run.events.push({speaker,round,text:'当前候选均忙碌，或秘书判断有不可妥协的限制，需主人核对'});run.status='NO_AGREEMENT';run.message=`在 ${room.dateFrom} 至 ${room.dateTo} 的候选中未找到满足安排和明确限制的时间。请核对偏好、扩大日期范围或手动选时；不会自动超出授权范围。`;return;}
         const slot=slots[selected];
-        run.events.push({speaker,round,text:`${selected===offer?'同意':'建议'} ${slot.date} ${slot.startTime}—${slot.endTime}`});
+        const weekday=['周日','周一','周二','周三','周四','周五','周六'][new Date(slot.date+'T00:00:00Z').getUTCDay()];
+        run.events.push({speaker,round,text:`${selected===offer?'同意':'建议'} ${slot.date}（${weekday}）${slot.startTime}—${slot.endTime}`});
         if(memberIndex===0)first=selected;
         offer=selected;
         if(memberIndex===1 && selected===first) {
