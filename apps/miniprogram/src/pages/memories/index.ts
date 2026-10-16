@@ -1,7 +1,7 @@
 import { PersonalMemory, categories, categoryNames, listMemories, saveMemory, deleteMemory } from '../../services/memories';
 import { errorMessage, modeLabel } from '../../services/secretary';
 
-type MemoryView = PersonalMemory & { categoryName: string; sourceName: string; updatedLabel: string };
+type MemoryView = PersonalMemory & { categoryName: string; sourceName: string; updatedLabel: string; checkedRule:boolean };
 Page({
   onFeedbackDismiss() { this.setData({ error: '' }); },
   data: {
@@ -13,6 +13,7 @@ Page({
     this.setData({ loading: true, error: '', items: [] });
     try {
       const items = (await listMemories()).map(item => ({ ...item,
+        checkedRule:item.category==='CONSTRAINT'&&item.label==='可校验安排规则'&&/^(所有活动|娱乐活动)：(仅周末安排|仅周六安排|当天无其他安排|前后各留出\d+分钟)$/.test(item.content)&&Number(/留出(\d+)分钟/.exec(item.content)?.[1]||0)<=240,
         categoryName: categoryNames[categories.indexOf(item.category)],
         sourceName: item.source === 'USER_INPUT' ? '手动录入' : '秘书提炼',
         updatedLabel: new Date(new Date(item.updatedAt).getTime() + 8 * 3600_000).toISOString().slice(0, 16).replace('T', ' '),
@@ -24,6 +25,15 @@ Page({
   add() {
     if (this.data.busy || this.data.loading) return;
     this.setData({ editorOpen: true, editingId: '', label: '', content: '', categoryIndex: 0, error: '' });
+  },
+  async addRule() {
+    if(this.data.busy||this.data.loading)return;
+    try {
+      const scope=await wx.showActionSheet({itemList:['仅娱乐活动','所有活动']});
+      const rules=['仅周末安排','仅周六安排','当天无其他安排','前后各留出30分钟','前后各留出60分钟','前后各留出120分钟'];
+      const choice=await wx.showActionSheet({itemList:rules});
+      this.setData({editorOpen:true,editingId:'',label:'可校验安排规则',categoryIndex:1,content:`${scope.tapIndex===0?'娱乐活动':'所有活动'}：${rules[choice.tapIndex]}`,error:''});
+    } catch { /* 取消选择不写入 */ }
   },
   edit(event: WechatMiniprogram.TouchEvent) {
     if (this.data.busy || this.data.loading) return;

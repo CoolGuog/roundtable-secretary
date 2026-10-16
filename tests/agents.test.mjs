@@ -7,6 +7,7 @@ async function setup(behavior) {
   const model={name:'test-agent',complete:async req=>{requests.push(req);const a=req.agent;
     if(!a.tools.read_busy)return {action:'read_busy'};
     if(!a.tools.read_preferences)return {action:'read_preferences'};
+    if(a.scheduleReadAllowed&&!a.tools.read_schedule)return {action:'read_schedule'};
     return behavior(a);
   }};
   const app=await createApp({storage:'memory',authMode:'demo',secretary:{mode:'http',model}});
@@ -29,6 +30,26 @@ async function setup(behavior) {
   return {app,call,a,b,c,root,day,requests,authorize,wait};
 }
 const answer=(a,choice)=>({action:'answer',choice,decision:choice===a.offer?'accept':'counter'});
+
+test('未授权的日程名称读取被阻止',async()=>{
+ const s=await setup(()=>({action:'read_schedule'}));
+ try{await s.authorize();await s.call(s.root+'/agents/start',s.a,{});const state=await s.wait();assert.equal(state.run.status,'FAILED');assert.match(state.run.message,/未授权读取日程名称/);assert.equal((await s.call(s.root+'/proposal',s.a)).status,204);}finally{await s.app.close();}
+});
+
+test('日程名称需本人单独授权；规则硬过滤；解释和日程不传给伙伴',async()=>{
+ const s=await setup(a=>({...answer(a,a.offer!==null&&a.tools.read_busy[a.offer]?a.offer:a.tools.read_busy.findIndex(Boolean)),explanation:a.tools.read_schedule?'A_ONLY_REASON':'B_ONLY_REASON'}));
+ try{
+  await s.call('/me/arrangements',s.a,{title:'A_ONLY_COURSE',date:s.day,startTime:'09:00',endTime:'10:00'});
+  await s.call('/me/memories',s.a,{category:'CONSTRAINT',label:'可校验安排规则',content:'所有活动：前后各留出60分钟'});
+  await s.authorize();await s.call(s.root+'/agents/consent',s.a,{enabled:true,shareDetails:true},'PUT');
+  await s.call(s.root+'/agents/start',s.a,{activityKind:'leisure'});const state=await s.wait();assert.equal(state.run.status,'READY');assert.ok(state.run.slot.startTime>='11:00');
+  assert.ok(state.run.explanation.some(x=>x.includes('60分钟')));assert.ok(state.run.explanation.some(x=>x.includes('A_ONLY_REASON')));
+  const b=(await s.call(s.root+'/agents',s.b)).data;assert.ok(!JSON.stringify(b).includes('A_ONLY_REASON'));assert.ok(!JSON.stringify(b).includes('60分钟'));
+  const aRequests=s.requests.filter(r=>r.agent.scheduleReadAllowed);assert.ok(aRequests.some(r=>JSON.stringify(r).includes('A_ONLY_COURSE')));
+  assert.ok(s.requests.filter(r=>!r.agent.scheduleReadAllowed).every(r=>!JSON.stringify(r).includes('A_ONLY_COURSE')));
+  assert.ok(!JSON.stringify(state.run.events).includes('A_ONLY_COURSE'));
+ }finally{await s.app.close();}
+});
 
 test('接受空提议会获得纠正机会且不会跳过主人确认',async()=>{
   const s=await setup(a=>a.offer===null&&!a.feedback?{action:'answer',choice:null,decision:'accept'}:answer(a,0));
