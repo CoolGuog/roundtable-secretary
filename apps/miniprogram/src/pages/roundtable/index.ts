@@ -13,7 +13,7 @@ Page({
     id: '', room: null as Room | null, loading: false, busy: false, error: '', local: isLocalRoomMode(), shareBusy: false, expiresLabel: '',
     availability: null as Availability | null, proposal: null as PageProposal | null, finding: false,
     syncing: false, fresh: false, syncError: '', lastSync: '',
-    manualDate: '', manualStart: '', manualEnd: '', manualNotice: '', toastMessage: '',
+    manualDate: '', manualStart: '', manualEnd: '', manualNotice: '', toastMessage: '', timeRemark:'',
   },
   _visible: false, _disposed: false, _epoch: 0, _viewEpoch: 0, _failures: 0, _proposalSignature: '',
   _timer: undefined as ReturnType<typeof setTimeout> | undefined,
@@ -79,7 +79,7 @@ Page({
   },
   onLoad(options: Record<string, string | undefined>) { this.setData({ id: options.id || '' }); },
   openReview() {
-    if (this._visible && this.data.room && this.data.fresh && !this.data.busy && !this.data.loading) wx.navigateTo({ url: `/pages/review/index?id=${encodeURIComponent(this.data.id)}` });
+    if (this._visible && this.data.room && this.data.fresh && !this.data.busy && !this.data.loading) wx.navigateTo({ url: `/pages/notes/index?id=${encodeURIComponent(this.data.id)}` });
   },
   openWork() {
     if (this._visible && this.data.local && this.data.room && this.data.fresh && !this.data.busy && !this.data.loading) wx.navigateTo({ url: `/pages/meeting-work/index?id=${encodeURIComponent(this.data.id)}` });
@@ -221,8 +221,10 @@ Page({
     this.confirmSlot({ date: slot.date, startTime: slot.startTime, endTime: slot.endTime });
   },
   confirmSlot(slot: Slot) {
-    this.confirmWork('提出这个时间', `${slot.date} ${slot.startTime}–${slot.endTime}\n全员接受后，会新增或更新本活动日程。`, () => proposeSlot(this.data.id, slot), false, '方案已提出，等待全员接受');
+    const remark=this.data.timeRemark.trim();
+    this.confirmWork('提出这个时间', `${slot.date} ${slot.startTime}–${slot.endTime}\n${remark?'备注：'+remark+'\n':''}全员接受后，会新增或更新本活动日程。`, async () => {const result=await proposeSlot(this.data.id,remark?{...slot,remark}:slot);this.setData({timeRemark:''});return result;}, false, '方案已提出，等待全员接受');
   },
+  onTimeRemark(event:WechatMiniprogram.Input){this.setData({timeRemark:event.detail.value});},
   decide(e: WechatMiniprogram.TouchEvent) {
     const decision = String(e.currentTarget.dataset.decision) === 'REJECT' ? 'REJECT' : 'ACCEPT';
     const proposal = this.data.proposal;

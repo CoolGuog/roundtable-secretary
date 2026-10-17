@@ -19,7 +19,7 @@ function validate(input: RoomInput): RoomInput {
   if (!Number.isInteger(input.durationMinutes) || input.durationMinutes < 15 || input.durationMinutes > 240 || input.durationMinutes % 15 || minutes(input.endTime) - minutes(input.startTime) < input.durationMinutes) throw new Error('活动时长须为 15 至 240 分钟、15 的倍数，且不超过每日时间窗口');
   return { ...input, title: input.title.trim(), goal: input.goal.trim() };
 }
-export interface Slot { date: string; startTime: string; endTime: string; key?: string; }
+export interface Slot { date: string; startTime: string; endTime: string; key?: string; remark?:string; }
 export interface Availability {
   slots: Slot[]; durationMinutes: number;
   window: { dateFrom: string; dateTo: string; startTime: string; endTime: string };
@@ -32,6 +32,7 @@ export interface Availability {
 export type Decision = 'PENDING' | 'ACCEPT' | 'REJECT';
 export interface ProposalVote { name: string; decision: Decision; decidedAt: string | null; isMe: boolean; }
 export interface Proposal {
+  remark?:string;
   id: string; roomId: string; date: string; startTime: string; endTime: string;
   status: 'OPEN' | 'CONFIRMED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED'; stale: boolean;
   expiresAt: string; createdAt: string; createdByMe: boolean; votes: ProposalVote[];

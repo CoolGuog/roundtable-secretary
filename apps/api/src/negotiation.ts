@@ -36,6 +36,7 @@ export type Availability = {
 /** 对外只给「谁、什么态度、什么时候」，不给 userId：圆桌内不需要也不应该暴露内部身份 */
 export type ProposalVote = { name: string; decision: Decision; decidedAt: string | null; isMe: boolean };
 export type Proposal = {
+  remark:string;
   id: string; roomId: string; date: string; startTime: string; endTime: string;
   status: ProposalStatus; stale: boolean; expiresAt: string; createdAt: string;
   createdByMe: boolean;
@@ -142,10 +143,10 @@ export function noSlotReason(window: NegotiationRoom, coverage: { shared: number
     `找不到 ${window.durationMinutes} 分钟的未来共同空档；已过去的时间不参与推荐，请选择更晚的日期或时段`;
 }
 
-export function validateProposalInput(value: unknown): Slot {
+export function validateProposalInput(value: unknown): Slot & {remark:string} {
   const input = inputObject(value);
   const keys = Object.keys(input);
-  if (keys.some(key => !['date', 'startTime', 'endTime'].includes(key)) || keys.length !== 3) {
+  if (keys.some(key => !['date', 'startTime', 'endTime','remark'].includes(key))) {
     throw new BadRequestException('请选择日期与起止时间');
   }
   const { date, startTime, endTime } = input;
@@ -155,7 +156,8 @@ export function validateProposalInput(value: unknown): Slot {
   if (typeof startTime !== 'string' || !TIME_PATTERN.test(startTime)) throw new BadRequestException('开始时间格式不正确');
   if (typeof endTime !== 'string' || !TIME_PATTERN.test(endTime)) throw new BadRequestException('结束时间格式不正确');
   if (startTime >= endTime) throw new BadRequestException('结束时间须晚于开始时间');
-  return { date, startTime, endTime };
+  if(input.remark!==undefined&&(typeof input.remark!=='string'||input.remark.length>500))throw new BadRequestException('改期备注不能超过500字');
+  return { date, startTime, endTime,remark:typeof input.remark==='string'?input.remark.trim():'' };
 }
 
 export function validateDecision(value: unknown): Exclude<Decision, 'PENDING'> {
@@ -190,6 +192,7 @@ export function validateSelectedSlot(room: NegotiationRoom, slot: Slot, busy: In
 }
 
 type StoredProposal = {
+  remark:string;
   id: string; roomId: string; date: string; startTime: string; endTime: string;
   roomVersion: number; status: ProposalStatus; createdById: string;
   expiresAt: Date; appliedAt: Date | null; createdAt: string;
@@ -204,6 +207,7 @@ export type NegotiationDeps = {
 };
 
 export interface NegotiationStore {
+  history(userId:string,roomId:string): Proposal[] | Promise<Proposal[]>;
   availability(userId: string, roomId: string): Availability | Promise<Availability>;
   createProposal(userId: string, roomId: string, value: unknown): Proposal | Promise<Proposal>;
   currentProposal(userId: string, roomId: string): Proposal | null | Promise<Proposal | null>;
@@ -218,6 +222,7 @@ export function isStale(proposal: Pick<StoredProposal, 'status' | 'expiresAt' | 
 }
 
 export class MemoryNegotiation implements NegotiationStore {
+  history(userId:string,roomId:string){const room=this.deps.room(userId,roomId);return [...this.proposals].reverse().filter(p=>p.roomId===roomId).slice(0,100).map(p=>this.dto(p,room,userId));}
   private decisionQueue: Promise<unknown> = Promise.resolve();
   private readonly proposals: StoredProposal[] = [];
   constructor(private readonly deps: NegotiationDeps) {}
@@ -231,7 +236,7 @@ export class MemoryNegotiation implements NegotiationStore {
   private dto(proposal: StoredProposal, room: NegotiationRoom, userId: string): Proposal {
     return { id: proposal.id, roomId: proposal.roomId, date: proposal.date, startTime: proposal.startTime, endTime: proposal.endTime,
       status: proposal.status, stale: isStale(proposal, room.version), expiresAt: proposal.expiresAt.toISOString(), createdAt: proposal.createdAt,
-      createdByMe: proposal.createdById === userId,
+      createdByMe: proposal.createdById === userId,remark:proposal.remark,
       votes: proposal.votes.map(vote => ({ name: this.deps.name(vote.userId), decision: vote.decision,
         decidedAt: vote.decidedAt, isMe: vote.userId === userId })) };
   }

@@ -1,0 +1,18 @@
+<feedback-toast message="{{error}}" binddismiss="onFeedbackDismiss" />
+<view class="page">
+ <view class="title">备注与时间记录</view>
+ <view class="muted spaced">备注对圆桌成员可见。时间提议只有全员接受后才生效。</view>
+ <button class="secondary" bindtap="reload" disabled="{{busy || loading}}">刷新记录</button>
+ <view class="card">
+  <view class="card-title">圆桌备注</view>
+  <textarea class="field" value="{{content}}" maxlength="500" bindinput="onContent" placeholder="例如：集合地点、需要带的材料…" disabled="{{busy || loading || !open}}" />
+  <button class="primary" bindtap="save" disabled="{{busy || loading || !open || !content}}" loading="{{busy}}">添加备注</button>
+  <bounded-scroll watch-data="{{notes}}"><view wx:for="{{notes}}" wx:key="id" class="record"><view class="muted">{{item.name}} · {{item.timeLabel}}</view><view class="spaced note-text">{{item.content}}</view></view></bounded-scroll>
+  <view wx:if="{{!notes.length}}" class="muted spaced">暂无备注</view>
+ </view>
+ <view class="card"><view class="card-title">时间提议 / 修改记录</view>
+  <view class="muted spaced">最近100次，最新在前；已确认表示该方案曾生效，之后可能再次改期。</view>
+  <bounded-scroll watch-data="{{history}}"><view wx:for="{{history}}" wx:key="id" class="record"><view>{{item.date}} {{item.startTime}}—{{item.endTime}}</view><view class="muted spaced">{{item.statusLabel}} · 提出于 {{item.timeLabel}}</view><view class="spaced note-text">{{item.remark || '未填写备注'}}</view></view></bounded-scroll>
+  <view wx:if="{{!history.length}}" class="muted spaced">暂无时间提议记录</view>
+ </view>
+</view>

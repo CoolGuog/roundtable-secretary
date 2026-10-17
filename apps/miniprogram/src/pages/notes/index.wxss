@@ -1,0 +1,2 @@
+.record {padding:24rpx 0;border-bottom:1rpx solid #e5e9e4;}
+.note-text {white-space:pre-wrap;word-break:break-all;}

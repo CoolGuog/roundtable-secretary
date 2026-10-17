@@ -17,6 +17,38 @@ async function pair(call, user, prefix = '协商') {
 const availability = async (call, token, id) => (await call(`/roundtables/${id}/availability`, 'GET', token)).json();
 
 export async function negotiationContract(t, call, user) {
+  await t.test('备注成员隔离、并发追加及改期历史；普通备注不使待确认方案失效', async () => {
+    const { a, b, id } = await pair(call, user, '备注');
+    const outsider = await user('备注旁观者');
+    const root = `/roundtables/${id}`;
+    for (const path of ['/notes', '/proposal-history']) assert.equal((await call(root + path, 'GET', outsider.token)).status, 404);
+    assert.equal((await call(root + '/notes', 'POST', outsider.token, { content: '越权' })).status, 404);
+    for (const body of [{ content: '' }, { content: 'x'.repeat(501) }, { content: '备注', name: '伪造作者' }]) {
+      assert.equal((await call(root + '/notes', 'POST', a.token, body)).status, 400);
+    }
+    const slot = { date: DAY, startTime: '14:00', endTime: '15:00' };
+    assert.equal((await call(root + '/proposals', 'POST', a.token, { ...slot, remark: 'x'.repeat(501) })).status, 400);
+    const firstResponse = await call(root + '/proposals', 'POST', a.token, { ...slot, remark: ' 初次约定 ' });
+    assert.equal(firstResponse.status, 201);
+    const first = await firstResponse.json();
+    const writes = await Promise.all([a, b].map((account, i) => call(root + '/notes', 'POST', account.token, { content: `说明${i}` })));
+    assert.ok(writes.every(r => r.status === 201));
+    const notes = await (await call(root + '/notes', 'GET', b.token)).json();
+    assert.equal(notes.length, 2); assert.equal(new Set(notes.map(n => n.id)).size, 2);
+    assert.deepEqual(new Set(notes.map(n => n.name)), new Set(['备注甲', '备注乙']));
+    for (const account of [a, b]) assert.equal((await call(`${root}/proposals/${first.id}`, 'PUT', account.token, { decision: 'ACCEPT' })).status, 200);
+    const secondResponse = await call(root + '/proposals', 'POST', b.token, { ...slot, startTime: '15:00', endTime: '16:00', remark: '需要晚一小时' });
+    assert.equal(secondResponse.status, 201);
+    const history = await (await call(root + '/proposal-history', 'GET', a.token)).json();
+    assert.equal(history.length, 2);
+    assert.equal(history.find(p => p.id === first.id).remark, '初次约定');
+    assert.equal(history.find(p => p.id === first.id).status, 'CONFIRMED');
+    assert.equal(history[0].remark, '需要晚一小时'); assert.equal(history[0].status, 'OPEN');
+    assert.ok(history[0].votes.every(v => v.decision === 'PENDING'));
+    await call(root + '/close', 'POST', a.token);
+    assert.equal((await call(root + '/notes', 'GET', a.token)).status, 200);
+    assert.equal((await call(root + '/notes', 'POST', a.token, { content: '关闭后写入' })).status, 400);
+  });
   await t.test('手动时间不受推荐数量和半小时步长限制；授权冲突、非法日期和错误时长仍拒绝', async () => {
     const { a, id } = await pair(call, user, '手动选时');
     const route = `/roundtables/${id}/proposals`;

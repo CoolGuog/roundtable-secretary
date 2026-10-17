@@ -14,6 +14,7 @@ type DbProposal = Prisma.ProposalGetPayload<{ include: typeof votes }>;
 type Interval = { start: number; end: number };
 
 export class PostgresNegotiation implements NegotiationStore {
+  async history(userId:string,roomId:string){return this.transaction(async tx=>{const room=await this.loadRoom(tx,userId,roomId);const rows=await tx.proposal.findMany({where:{roomId},include:votes,orderBy:[{createdAt:'desc'},{id:'asc'}],take:100});return rows.map(row=>this.dto(row,room,userId));});}
   constructor(private readonly db: PrismaClient, private readonly transaction: Transaction, private readonly appId?: string) {}
   private async loadRoom(tx: Prisma.TransactionClient, userId: string, roomId: string): Promise<NegotiationRoom> {
     if (!UUID_PATTERN.test(roomId)) throw new NotFoundException('圆桌不存在或你已不是成员');
@@ -49,7 +50,7 @@ export class PostgresNegotiation implements NegotiationStore {
   private dto(proposal: DbProposal, room: NegotiationRoom, userId: string): Proposal {
     return { id: proposal.id, roomId: proposal.roomId, date: proposal.date, startTime: proposal.startTime, endTime: proposal.endTime,
       status: proposal.status, stale: isStale(proposal, room.version), expiresAt: proposal.expiresAt.toISOString(),
-      createdAt: proposal.createdAt.toISOString(), createdByMe: proposal.createdById === userId,
+      createdAt: proposal.createdAt.toISOString(), createdByMe: proposal.createdById === userId,remark:proposal.remark,
       votes: proposal.votes.map(vote => ({ name: vote.user.displayName, decision: vote.decision,
         decidedAt: vote.decidedAt?.toISOString() ?? null, isMe: vote.userId === userId })) };
   }

@@ -173,7 +173,7 @@ export class AgentNegotiation {
             explanations[own.userId]=['生成方案时未与本人的已有安排重叠',...checked.rules.map(rule=>'已校验：'+rule.text),...(privateReasons[own.userId]?['模型建议理由（需核对）：'+privateReasons[own.userId]]:[]),'各位秘书选择了同一候选；普通文字偏好由模型参考，尚不保证全部满足。'];
           }
           await this.check(userId,room.id,run);
-          const proposal=await this.store.negotiation.createProposal(userId,room.id,slot);
+          const proposal=await this.store.negotiation.createProposal(userId,room.id,{...slot,remark:'秘书协商生成；全员确认后生效。'});
           run.explanations=explanations;run.slot=slot;run.proposalId=proposal.id;run.status='READY';run.message='秘书已达成一致，已生成待确认方案。请所有成员返回圆桌亲自接受，全员确认后才写入日程。';return;
         }
       }

@@ -123,6 +123,7 @@ enum ProposalDecision {
 }
 
 model Roundtable {
+  notes Json @default("[]")
   id String @id @default(uuid()) @db.Uuid
   ownerId String @map("owner_id") @db.Uuid
   title String @db.VarChar(60)
@@ -156,8 +157,9 @@ model MeetingReview {
   @@map("meeting_reviews")
 }
 
-/// 一次协商提出的候选方案。只存时间，不存任何成员的安排标题或原因。
+/// 一次协商提出的候选方案。保存时间与成员主动填写的公开备注，不复制私人安排或模型推理。
 model Proposal {
+  remark String @default("") @db.VarChar(500)
   id String @id @default(uuid()) @db.Uuid
   roomId String @map("room_id") @db.Uuid
 

@@ -1,5 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+import { RoomNote,validateRoomNote } from './rooms';
 import { Room, RoomStore, newInvitation, requireOpen, requireOwner, validateConsent, validateInvite, validateRoom } from './rooms';
 
 const include = { members: { include: { user: { select: { displayName: true } } }, orderBy: [{ joinedAt: 'asc' as const }, { id: 'asc' as const }] } };
@@ -13,6 +15,21 @@ function dto(room: DbRoom, userId: string): Room {
     members: room.members.map(member => ({ id: member.id, name: member.user.displayName, role: member.userId === room.ownerId ? 'OWNER' : 'MEMBER', isMe: member.userId === userId, shareBusy: member.shareBusy, consentUpdatedAt: member.consentUpdatedAt?.toISOString() ?? null })) };
 }
 export class PostgresRooms implements RoomStore {
+  async notes(userId:string,id:string){const room=await this.accessible(this.db,userId,id);return room.notes as unknown as RoomNote[];}
+  async addNote(userId:string,id:string,value:unknown){
+    const content=validateRoomNote(value);
+    // 先校验访问和UUID，再锁行；与退出/移除成员使用同一圆桌锁。
+    await this.accessible(this.db,userId,id);
+    return this.transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM roundtables WHERE id = ${id}::uuid FOR UPDATE`;
+      const room=await this.accessible(tx,userId,id);requireOpen(room.status);
+      const notes=room.notes as unknown as RoomNote[];
+      if(notes.length>=100)throw new BadRequestException('备注已达到100条上限');
+      const name=room.members.find(member=>member.userId===userId)!.user.displayName;
+      const next=[...notes,{id:randomUUID(),name,content,createdAt:new Date().toISOString()}];
+      await tx.roundtable.update({where:{id},data:{notes:next}});return next;
+    });
+  }
   constructor(private readonly db: PrismaClient, private readonly transaction: Transaction, private readonly appId?: string) {}
   private where(userId: string): Prisma.RoundtableWhereInput { return { members: { some: { userId } }, owner: { wxAppId: this.appId ?? null } }; }
   private async accessible(tx: Prisma.TransactionClient, userId: string, id: string) {

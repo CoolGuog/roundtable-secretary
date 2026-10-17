@@ -7,6 +7,8 @@ export type RoomInput = { title: string; goal: string; dateFrom: string; dateTo:
 export type RoomMember = { id: string; name: string; role: 'OWNER' | 'MEMBER'; isMe: boolean; shareBusy: boolean; consentUpdatedAt: string | null };
 export type Room = RoomInput & { id: string; status: 'OPEN' | 'CLOSED'; version: number; createdAt: string; isOwner: boolean; members: RoomMember[]; inviteCode?: string; inviteExpiresAt?: string };
 export interface RoomStore {
+  notes(userId:string,id:string): RoomNote[] | Promise<RoomNote[]>;
+  addNote(userId:string,id:string,value:unknown): RoomNote[] | Promise<RoomNote[]>;
   list(userId: string): Room[] | Promise<Room[]>;
   get(userId: string, id: string): Room | Promise<Room>;
   create(userId: string, value: unknown): Room | Promise<Room>;
@@ -16,6 +18,12 @@ export interface RoomStore {
   remove(userId: string, id: string, memberId: string): Room | Promise<Room>;
   leave(userId: string, id: string): void | Promise<void>;
   close(userId: string, id: string): Room | Promise<Room>;
+}
+export type RoomNote={id:string;name:string;content:string;createdAt:string};
+export function validateRoomNote(value:unknown){
+  const input=inputObject(value);
+  if(Object.keys(input).some(key=>key!=='content')||typeof input.content!=='string'||!input.content.trim()||input.content.trim().length>500)throw new BadRequestException('请填写1至500字备注');
+  return input.content.trim();
 }
 export function validateRoom(value: unknown): RoomInput {
   const input = inputObject(value);
@@ -47,6 +55,14 @@ type StoredRoom = RoomInput & { id: string; ownerId: string; status: 'OPEN' | 'C
   members: { id: string; userId: string; shareBusy: boolean; consentUpdatedAt: string | null }[] };
 
 export class MemoryRooms implements RoomStore {
+  private readonly noteRecords=new Map<string,RoomNote[]>();
+  notes(userId:string,id:string){this.accessible(userId,id);return this.noteRecords.get(id)||[];}
+  addNote(userId:string,id:string,value:unknown){
+    const room=this.accessible(userId,id);requireOpen(room.status);
+    const content=validateRoomNote(value),notes=this.notes(userId,id);
+    if(notes.length>=100)throw new BadRequestException('备注已达到100条上限');
+    const next=[...notes,{id:randomUUID(),name:this.name(userId),content,createdAt:new Date().toISOString()}];this.noteRecords.set(id,next);return next;
+  }
   private readonly rooms = new Map<string, StoredRoom>();
   constructor(private readonly name: (id: string) => string) {}
   private accessible(userId: string, id: string) {

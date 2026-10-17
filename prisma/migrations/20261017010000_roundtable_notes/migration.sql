@@ -1,0 +1,2 @@
+ALTER TABLE "roundtables" ADD COLUMN "notes" JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE "proposals" ADD COLUMN "remark" VARCHAR(500) NOT NULL DEFAULT '';

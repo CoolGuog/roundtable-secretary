@@ -274,6 +274,9 @@ class PersonalController {
 @Controller('roundtables')
 @UseGuards(SessionGuard)
 class RoundtableController {
+  @Get(':id/notes') notes(@Req() req:AuthRequest,@Param('id') id:string){return this.store.rooms.notes(req.userId!,id);}
+  @Post(':id/notes') addNote(@Req() req:AuthRequest,@Param('id') id:string,@Body() body:unknown){return this.store.rooms.addNote(req.userId!,id,body);}
+  @Get(':id/proposal-history') history(@Req() req:AuthRequest,@Param('id') id:string){return this.store.negotiation.history(req.userId!,id);}
   constructor(@Inject(STORE) private readonly store: PersonalStore, @Inject(AGENT_NEGOTIATION) private readonly agents: AgentNegotiation) {}
   @Get(':id/agents') agentStatus(@Req() req: AuthRequest, @Param('id') id: string) { return this.agents.status(req.userId!,id); }
   @Put(':id/agents/consent') agentConsent(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.agents.consent(req.userId!,id,body); }
