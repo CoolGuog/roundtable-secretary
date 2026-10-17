@@ -1,0 +1,4 @@
+<scroll-view scroll-y="{{clipped}}" show-scrollbar="{{true}}" class="bounded-scroll" style="height:{{height}};max-height:{{limit}}px;">
+  <view class="scroll-content"><slot /></view>
+</scroll-view>
+<view wx:if="{{clipped}}" class="scroll-hint">在框内上下滑动查看完整内容</view>

@@ -43,6 +43,7 @@
   },
   "sitemapLocation": "sitemap.json",
   "usingComponents": {
+    "bounded-scroll": "/components/bounded-scroll/index",
     "feedback-toast": "/components/feedback-toast/index"
   }
 }

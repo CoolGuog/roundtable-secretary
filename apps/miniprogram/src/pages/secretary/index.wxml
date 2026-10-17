@@ -93,6 +93,7 @@
 
   <view class="card" wx:if="{{courseBatch || batch.length || batchNotes.length}}">
     <view class="card-title">{{courseBatch ? '识别成功 ' + recognizedCount + ' 条课程安排' : '核对安排 · ' + batch.length + ' 条'}}</view>
+    <bounded-scroll watch-data="{{[batch, courseFailures]}}">
     <view wx:if="{{courseBatch && courseFailures.length}}" class="notice">
       <view class="card-title">未完整识别 / 未导入</view>
       <view wx:for="{{courseFailures}}" wx:key="index" class="spaced">{{item.title}}：{{item.reason}}</view>
@@ -104,6 +105,7 @@
       <view class="notice" wx:if="{{item.uncertain}}">保存结果待确认。请原样重试；本次运行内不会重复创建。重新编译前请先到日程核对。</view>
       <button wx:if="{{!item.saved}}" class="secondary" data-index="{{index}}" bindtap="editBatch" disabled="{{saving || drafting || item.uncertain}}">修改 / 补充</button>
     </view>
+    </bounded-scroll>
     <button class="primary" bindtap="saveBatch" loading="{{saving}}" disabled="{{saving || drafting || showForm}}">确认写入勾选的安排</button>
     <view class="muted spaced">保存前检查每条开始日起31天内的冲突。草稿仅在当前页面保留，离开或重新编译前请完成确认。</view>
   </view>

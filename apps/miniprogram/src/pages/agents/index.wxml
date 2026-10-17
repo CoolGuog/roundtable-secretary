@@ -17,10 +17,12 @@
   </view>
   <view class="card" wx:if="{{state.run}}">
     <view class="card-title">{{state.run.status === 'RUNNING' ? '协商进行中' : state.run.status === 'READY' ? '等待主人确认' : '需要主人处理'}}</view>
+    <bounded-scroll watch-data="{{state.run}}">
     <view class="notice">{{state.run.message}}</view>
     <view wx:if="{{state.run.activityKind}}" class="muted">本次类型：{{state.run.activityKind}}</view>
     <view wx:if="{{state.run.explanation.length}}" class="spaced"><view class="card-title">本人的方案核对（仅你可见）</view><view wx:for="{{state.run.explanation}}" wx:key="index" class="muted spaced">{{item}}</view></view>
     <view wx:for="{{state.run.events}}" wx:key="index" class="event"><view class="muted">第{{item.round}}轮 · {{item.speaker}}</view><view class="spaced">{{item.text}}</view></view>
+    </bounded-scroll>
   </view>
   <view class="muted spaced">工具读取和时间提议来自真实执行；共享消息由程序生成，不公开任何私人偏好或日程标题。候选最多216个，不代表所有可行时段。</view>
   <button class="secondary" bindtap="back">返回圆桌 / 确认方案</button>
