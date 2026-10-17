@@ -31,6 +31,24 @@ async function setup(behavior) {
 }
 const answer=(a,choice)=>({action:'answer',choice,decision:choice===a.offer?'accept':'counter'});
 
+test('五人协商不能忽略中间成员异议，五人全部亲自接受才写入',async()=>{
+ const s=await setup(a=>answer(a,a.round>=2||a.tools.read_preferences.some(p=>p.content==='THIRD_PRIVATE')?1:0));
+ try{
+  const room=(await s.call(s.root,s.a)).data;
+  const d=(await s.call('/dev/sessions',null,{name:'丁'})).data.token,e=(await s.call('/dev/sessions',null,{name:'戊'})).data.token;
+  for(const token of [s.c,d,e]){assert.equal((await s.call('/roundtables/join',token,{code:room.inviteCode})).status,201);await s.call(s.root+'/membership',token,{shareBusy:true},'PUT');}
+  await s.call('/me/memories',s.c,{category:'PREFERENCE',label:'个人条件',content:'THIRD_PRIVATE'});
+  const people=[s.a,s.b,s.c,d,e];for(const token of people)await s.call(s.root+'/agents/consent',token,{enabled:true},'PUT');
+  await s.call(s.root+'/agents/start',s.a,{});const state=await s.wait();assert.equal(state.run.status,'READY');assert.equal(Math.max(...state.run.events.map(e=>e.round)),2);
+  assert.ok(!JSON.stringify(state).includes('THIRD_PRIVATE'));
+  const proposal=(await s.call(s.root+'/proposal',s.a)).data;assert.equal(proposal.votes.length,5);
+  for(const token of people.slice(0,4))await s.call(s.root+'/proposals/'+proposal.id,token,{decision:'ACCEPT'},'PUT');
+  assert.deepEqual((await s.call('/me/arrangements',s.a)).data,[]);
+  await s.call(s.root+'/proposals/'+proposal.id,e,{decision:'ACCEPT'},'PUT');
+  for(const token of people)assert.equal((await s.call('/me/arrangements',token)).data.length,1);
+ }finally{await s.app.close();}
+});
+
 test('未授权的日程名称读取被阻止',async()=>{
  const s=await setup(()=>({action:'read_schedule'}));
  try{await s.authorize();await s.call(s.root+'/agents/start',s.a,{});const state=await s.wait();assert.equal(state.run.status,'FAILED');assert.match(state.run.message,/未授权读取日程名称/);assert.equal((await s.call(s.root+'/proposal',s.a)).status,204);}finally{await s.app.close();}

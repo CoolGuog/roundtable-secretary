@@ -6,7 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const source = join(root, 'dist', 'miniprogram');
 const project = JSON.parse(await readFile(join(root, 'project.config.json'), 'utf8'));
 const localOnly = process.argv.includes('--local');
-for (const identity of localOnly ? ['local'] : ['A', 'B']) {
+for (const identity of localOnly ? ['local'] : ['A', 'B', 'C']) {
   const preview = join(root, 'dist', `demo-${identity}`);
   const mini = join(preview, 'miniprogram');
   await mkdir(preview, { recursive: true });
@@ -27,4 +27,4 @@ for (const identity of localOnly ? ['local'] : ['A', 'B']) {
   }, null, 2));
   console.log(`${localOnly ? '本机工作台' : `测试学生 ${identity}`}: ${preview}`);
 }
-console.log(localOnly ? '导入此目录验收本机会议工作台；记录仅存在本机，不代表多人同步。' : '分别导入两个目录，在两个窗口编译；两个项目连接同一个后台，演示会话缓存独立。');
+console.log(localOnly ? '导入此目录验收本机会议工作台；记录仅存在本机，不代表多人同步。' : '分别导入A、B、C目录，在三个窗口编译；三个项目连接同一个后台，演示会话缓存独立。');

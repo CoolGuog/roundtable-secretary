@@ -22,6 +22,6 @@
   <view wx:if="{{loading}}" class="empty">正在读取…</view><view wx:elif="{{!rooms.length && !error}}" class="empty">还没有圆桌。<view>从一次共同活动开始。</view></view>
   <view wx:for="{{rooms}}" wx:key="id" class="card room-card" data-id="{{item.id}}" bindtap="open">
     <view class="row"><view class="card-title room-name">{{item.title}}</view><text class="badge">{{item.status === 'OPEN' ? '进行中' : '已关闭'}}</text></view>
-    <view class="subtitle spaced">{{item.dateFrom}} 至 {{item.dateTo}}</view><view class="muted">{{item.members.length}} / 3 人 · {{item.durationMinutes}} 分钟 · {{item.isOwner ? '我发起的' : '我加入的'}}</view>
+    <view class="subtitle spaced">{{item.dateFrom}} 至 {{item.dateTo}}</view><view class="muted">{{item.members.length}} / 5 人 · {{item.durationMinutes}} 分钟 · {{item.isOwner ? '我发起的' : '我加入的'}}</view>
   </view>
 </view>

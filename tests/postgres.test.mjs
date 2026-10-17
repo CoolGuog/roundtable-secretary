@@ -158,13 +158,13 @@ test('PostgreSQL 持久化、隔离、过期与并发配额', { skip: !process.e
       const room = await (await call('/roundtables', 'POST', a.token, sampleRoom)).json();
       const same = await Promise.all(Array.from({ length: 3 }, () => call('/roundtables/join', 'POST', b.token, { code: room.inviteCode })));
       assert.ok(same.every(response => response.status === 201));
-      const others = await Promise.all([user('候选甲'), user('候选乙'), user('候选丙')]);
+      const others = await Promise.all([user('候选甲'), user('候选乙'), user('候选丙'), user('候选丁'), user('候选戊')]);
       const joined = await Promise.all(others.map(member => call('/roundtables/join', 'POST', member.token, { code: room.inviteCode })));
-      assert.equal(joined.filter(response => response.status === 201).length, 1);
+      assert.equal(joined.filter(response => response.status === 201).length, 3);
       assert.ok(joined.every(response => [201, 400].includes(response.status)));
-      assert.equal(await db.roundtableMember.count({ where: { roomId: room.id } }), 3);
+      assert.equal(await db.roundtableMember.count({ where: { roomId: room.id } }), 5);
       await app.close(); app = undefined; await start();
-      assert.equal((await (await call(`/roundtables/${room.id}`, 'GET', a.token)).json()).members.length, 3);
+      assert.equal((await (await call(`/roundtables/${room.id}`, 'GET', a.token)).json()).members.length, 5);
       await db.roundtable.update({ where: { id: room.id }, data: { inviteExpiresAt: new Date(0) } });
       assert.equal((await call('/roundtables/join', 'POST', b.token, { code: room.inviteCode })).status, 404);
     });

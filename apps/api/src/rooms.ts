@@ -89,7 +89,7 @@ export class MemoryRooms implements RoomStore {
     if (!room) throw new NotFoundException('邀请码无效、已过期或圆桌已关闭');
     if (room.members.some(member => member.userId === userId)) return this.dto(room, userId);
     this.quota(userId);
-    if (room.members.length >= 3) throw new BadRequestException('圆桌已满，首版最多 3 人');
+    if (room.members.length >= 5) throw new BadRequestException('圆桌已满，最多 5 人');
     room.members.push({ id: randomUUID(), userId, shareBusy: false, consentUpdatedAt: null }); room.version++;
     return this.dto(room, userId);
   }

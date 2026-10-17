@@ -60,7 +60,7 @@ export class AgentNegotiation {
     const room = await this.store.rooms.get(userId, roomId);
     if (!room.isOwner) throw new ForbiddenException('请由圆桌发起人启动协商');
     if (!this.model) throw new BadRequestException('需要先在后台接入真实模型');
-    if (room.status !== 'OPEN' || room.members.length !== 2 || !room.members.every(member => this.authorized(room, member.id))) throw new BadRequestException('首版需要两位成员都授权忙闲及个人秘书');
+    if (room.status !== 'OPEN' || room.members.length < 2 || room.members.length > 5 || !room.members.every(member => this.authorized(room, member.id))) throw new BadRequestException('需要2至5位成员，且全员授权忙闲及个人秘书');
     const last = this.runs.get(roomId);
     if (last?.status === 'RUNNING') return this.status(userId, roomId);
     if (last && Date.now()-last.created < 60000) throw new HttpException('请间隔一分钟再启动协商',429);
@@ -70,7 +70,7 @@ export class AgentNegotiation {
     // await后再检查，避免两个并发启动重复消耗模型与创建方案。
     if (this.runs.get(roomId)?.status === 'RUNNING') return this.status(userId, roomId);
     if (this.active >= 2) throw new HttpException('秘书协商繁忙，请稍后重试',429);
-    const run: Run = { id: randomUUID(), version: room.version, created: Date.now(), leisure:input.activityKind==='leisure', activityKind:input.activityKind==='leisure'?'娱乐活动':input.activityKind==='meeting'?'学习会议':'其他活动', status:'RUNNING', events:[], message:'两位秘书正在协商，尚未写入日程' };
+    const run: Run = { id: randomUUID(), version: room.version, created: Date.now(), leisure:input.activityKind==='leisure', activityKind:input.activityKind==='leisure'?'娱乐活动':input.activityKind==='meeting'?'学习会议':'其他活动', status:'RUNNING', events:[], message:'各位秘书正在协商，尚未写入日程' };
     this.runs.set(roomId,run); this.active++;
     void this.execute(userId,room,run).catch(error => {
       if(run.status !== 'RUNNING')return;
@@ -106,17 +106,17 @@ export class AgentNegotiation {
     if(!slots.length){run.status='NO_AGREEMENT';run.message='没有可供协商的未来时段，请修改圆桌范围';return;}
     let offer: number|null=null;
     const privateReasons:Record<string,string>={};
-    const histories: Array<Array<Record<string,unknown>>> = [[],[]];
+    const histories: Array<Array<Record<string,unknown>>> = room.members.map(()=>[]);
     for(let round=1;round<=5;round++) {
-      let first: number|null=null;
-      for(let memberIndex=0;memberIndex<2;memberIndex++) {
+      const roundChoices:number[]=[];
+      for(let memberIndex=0;memberIndex<room.members.length;memberIndex++) {
         await this.check(userId,room.id,run);
         const member=room.members[memberIndex], consent=this.authorized(room,member.id)!;
         const speaker=`${member.name}的秘书`, tools: Record<string,unknown>={};
         let selected: number|null=null, answered=false, feedback='';
         for(let step=0;step<5;step++) {
           await this.check(userId,room.id,run);
-          const action=await this.model!.complete({text:'',today:beijingDate(new Date()),memories:[],agent:{ title:room.title, goal:room.goal, activityKind:run.activityKind, scheduleReadAllowed:consent.shareDetails, round, maxRounds:5, candidates:slots.map((slot,index)=>({...slot,index,weekday:['周日','周一','周二','周三','周四','周五','周六'][new Date(slot.date+'T00:00:00Z').getUTCDay()]})), offer, previousFeedback:histories[1-memberIndex].slice(-1), ownHistory:histories[memberIndex], tools, feedback }});
+          const action=await this.model!.complete({text:'',today:beijingDate(new Date()),memories:[],agent:{ title:room.title, goal:room.goal, activityKind:run.activityKind, scheduleReadAllowed:consent.shareDetails, round, maxRounds:5, candidates:slots.map((slot,index)=>({...slot,index,weekday:['周日','周一','周二','周三','周四','周五','周六'][new Date(slot.date+'T00:00:00Z').getUTCDay()]})), offer, previousFeedback:histories.flatMap((history,index)=>index===memberIndex?[]:history.slice(-1).map(entry=>({...entry,member:index+1}))), ownHistory:histories[memberIndex], tools, feedback }});
           await this.check(userId,room.id,run);
           if(!action)throw new Error('无工具动作');
           if(['read_busy','read_preferences','read_schedule'].includes(String(action.action)) && Object.hasOwn(tools,String(action.action))) {
@@ -161,20 +161,20 @@ export class AgentNegotiation {
         const slot=slots[selected];
         const weekday=['周日','周一','周二','周三','周四','周五','周六'][new Date(slot.date+'T00:00:00Z').getUTCDay()];
         run.events.push({speaker,round,text:`${selected===offer?'同意':'建议'} ${slot.date}（${weekday}）${slot.startTime}—${slot.endTime}`});
-        if(memberIndex===0)first=selected;
+        roundChoices.push(selected);
         offer=selected;
-        if(memberIndex===1 && selected===first) {
+        if(roundChoices.length===room.members.length && roundChoices.every(choice=>choice===selected)) {
           await this.check(userId,room.id,run);
           const explanations:Record<string,string[]>={};
           for(const m of room.members){
             const own=this.authorized(room,m.id)!;
             const checked=await this.availability(own,room,[slot],run.leisure);
             if(!checked.available[0])throw new AgentFlowError('日程或可校验规则已变化，方案未生成');
-            explanations[own.userId]=['生成方案时未与本人的已有安排重叠',...checked.rules.map(rule=>'已校验：'+rule.text),...(privateReasons[own.userId]?['模型建议理由（需核对）：'+privateReasons[own.userId]]:[]),'两位秘书选择了同一候选；普通文字偏好由模型参考，尚不保证全部满足。'];
+            explanations[own.userId]=['生成方案时未与本人的已有安排重叠',...checked.rules.map(rule=>'已校验：'+rule.text),...(privateReasons[own.userId]?['模型建议理由（需核对）：'+privateReasons[own.userId]]:[]),'各位秘书选择了同一候选；普通文字偏好由模型参考，尚不保证全部满足。'];
           }
           await this.check(userId,room.id,run);
           const proposal=await this.store.negotiation.createProposal(userId,room.id,slot);
-          run.explanations=explanations;run.slot=slot;run.proposalId=proposal.id;run.status='READY';run.message='秘书已达成一致，已生成待确认方案。请双方返回圆桌亲自接受，全员确认后才写入日程。';return;
+          run.explanations=explanations;run.slot=slot;run.proposalId=proposal.id;run.status='READY';run.message='秘书已达成一致，已生成待确认方案。请所有成员返回圆桌亲自接受，全员确认后才写入日程。';return;
         }
       }
     }

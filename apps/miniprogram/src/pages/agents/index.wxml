@@ -1,6 +1,6 @@
 <feedback-toast message="{{error}}" binddismiss="onFeedbackDismiss" />
 <view class="page">
-  <view class="title">两位秘书协商</view>
+  <view class="title">各位秘书协商</view>
   <view class="subtitle">各自考虑主人的安排，共同寻找讨论时间。</view>
   <view class="card" wx:if="{{state}}">
     <view class="card-title">个人秘书授权</view>
@@ -12,8 +12,8 @@
     <picker wx:if="{{state.isOwner}}" range="{{activityNames}}" value="{{activityIndex}}" bindchange="onActivity" disabled="{{busy || state.run.status === 'RUNNING'}}"><view class="field">本次类型：{{activityNames[activityIndex]}} · 点击选择</view></picker>
     <view wx:if="{{state.isOwner}}" class="muted spaced">请按实际活动选择；“仅娱乐”的规则只在选择娱乐活动时生效。默认不会额外增加限制。</view>
     <view wx:if="{{!state.enabled}}" class="notice">后台尚未接入真实模型。</view>
-    <view wx:if="{{state.members.length !== 2}}" class="notice">首版仅支持两位成员。</view>
-    <button wx:if="{{state.isOwner}}" class="primary" bindtap="start" disabled="{{busy || !state.enabled || !state.roomOpen || state.members.length !== 2 || state.run.status === 'RUNNING'}}">{{state.run.status === 'RUNNING' ? '秘书正在协商…' : '开始协商（最多5轮）'}}</button>
+    <view wx:if="{{state.members.length < 2 || state.members.length > 5}}" class="notice">支持2至5位成员，需全员授权。</view>
+    <button wx:if="{{state.isOwner}}" class="primary" bindtap="start" disabled="{{busy || !state.enabled || !state.roomOpen || state.members.length < 2 || state.members.length > 5 || state.run.status === 'RUNNING'}}">{{state.run.status === 'RUNNING' ? '秘书正在协商…' : '开始协商（最多5轮）'}}</button>
   </view>
   <view class="card" wx:if="{{state.run}}">
     <view class="card-title">{{state.run.status === 'RUNNING' ? '协商进行中' : state.run.status === 'READY' ? '等待主人确认' : '需要主人处理'}}</view>

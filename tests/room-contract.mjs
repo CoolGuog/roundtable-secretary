@@ -62,11 +62,11 @@ export async function roomContract(t, call, user) {
     assert.equal((await call(`/roundtables/${id}/members/${room.members[0].id}`, 'DELETE', a.token)).status, 400);
   });
   await t.test('人数上限、成员退出、关闭撤销授权，关闭操作幂等且禁止再加入', async () => {
-    const a = await user('关闭甲'), b = await user('关闭乙'), c = await user('关闭丙'), d = await user('关闭丁');
+    const a = await user('关闭甲'), b = await user('关闭乙'), c = await user('关闭丙'), d = await user('关闭丁'), e = await user('关闭戊'), f = await user('超额成员');
     let room = await (await call('/roundtables', 'POST', a.token, sampleRoom)).json();
     const { id, inviteCode: code } = room;
-    for (const token of [b.token, c.token]) assert.equal((await call('/roundtables/join', 'POST', token, { code })).status, 201);
-    assert.equal((await call('/roundtables/join', 'POST', d.token, { code })).status, 400);
+    for (const token of [b.token, c.token,d.token,e.token]) assert.equal((await call('/roundtables/join', 'POST', token, { code })).status, 201);
+    assert.equal((await call('/roundtables/join', 'POST', f.token, { code })).status, 400);
     assert.equal((await call(`/roundtables/${id}/membership`, 'DELETE', a.token)).status, 400);
     assert.equal((await call(`/roundtables/${id}/membership`, 'DELETE', b.token)).status, 204);
     assert.equal((await call(`/roundtables/${id}`, 'GET', b.token)).status, 404);

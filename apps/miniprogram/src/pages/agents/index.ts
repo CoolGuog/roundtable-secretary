@@ -26,7 +26,7 @@ Page({
   },
   async start(){
     if(this.data.busy)return;
-    const answer=await wx.showModal({title:'启动两位秘书协商',content:'最多5轮，可能进行多次模型调用并消耗用量。达成一致后只生成待确认方案，不会替任何人接受。'});
+    const answer=await wx.showModal({title:'启动各位秘书协商',content:'最多5轮，可能进行多次模型调用并消耗用量。达成一致后只生成待确认方案，不会替任何人接受。'});
     if(answer.confirm)await this.action('start','POST',{activityKind:['meeting','leisure','other'][this.data.activityIndex]});
   },
   async action(path:string,method:'PUT'|'POST',body:object){
