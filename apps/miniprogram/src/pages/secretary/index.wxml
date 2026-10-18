@@ -76,7 +76,17 @@
       <text class="field-label">学期与节次说明</text>
       <textarea class="field area" value="{{courseContext}}" maxlength="1000" bindinput="onCourseContext" disabled="{{drafting || saving || extracting}}" placeholder="例如：第一周周一是2026-10-12，第1—2节08:30—10:00，本学期至2027-01-29。请按学校实际作息填写。" />
       <view class="notice">学期日期会根据课表预填；无法推算时秋季默认9月1日开始，时长4个月。可在草稿中修改。单双周、离散周和调课暂不支持自动入库。</view>
-      <button class="primary" bindtap="generateCourses" disabled="{{extracting || drafting || saving}}" loading="{{drafting}}">{{courseImagePath ? '让模型直接看图整理' : '整理课程草稿'}}</button>
+      <button class="secondary" bindtap="toggleCourseTiming" disabled="{{extracting || drafting || saving}}">{{courseTimingEnabled ? '关闭统一作息预填' : '课表没有钟点？一键预填节次时间'}}</button>
+      <view wx:if="{{courseTimingEnabled}}">
+        <view class="notice">演示默认：上午1—4节、下午5—8节、晚上9—12节，每节45分钟、课间10分钟。仅补缺失时间，非学校官方作息；确认后统一换算所有课程。</view>
+        <picker mode="time" value="{{courseMorning}}" data-field="courseMorning" bindchange="onCourseTiming" disabled="{{drafting || saving}}"><view class="field">第1节开始：{{courseMorning}}（可改为08:00）</view></picker>
+        <picker mode="time" value="{{courseAfternoon}}" data-field="courseAfternoon" bindchange="onCourseTiming" disabled="{{drafting || saving}}"><view class="field">第5节开始：{{courseAfternoon}}</view></picker>
+        <picker mode="time" value="{{courseEvening}}" data-field="courseEvening" bindchange="onCourseTiming" disabled="{{drafting || saving}}"><view class="field">第9节开始：{{courseEvening}}</view></picker>
+        <view class="muted">每节课时长（分钟）</view><input class="field" type="number" value="{{courseLessonMinutes}}" data-field="courseLessonMinutes" bindinput="onCourseTiming" disabled="{{drafting || saving}}" />
+        <view class="muted">课间时长（分钟）</view><input class="field" type="number" value="{{courseBreakMinutes}}" data-field="courseBreakMinutes" bindinput="onCourseTiming" disabled="{{drafting || saving}}" />
+        <view wx:if="{{courseTimingPreview}}" class="muted spaced">{{courseTimingPreview}}</view>
+      </view>
+      <button class="primary" bindtap="generateCourses" disabled="{{extracting || drafting || saving}}" loading="{{drafting}}">{{courseTimingEnabled ? '按统一作息重新整理课程' : courseImagePath ? '让模型直接看图整理' : '整理课程草稿'}}</button>
     </view>
   </view>
   <view class="card" wx:if="{{draft}}">
@@ -93,6 +103,7 @@
 
   <view class="card" wx:if="{{courseBatch || batch.length || batchNotes.length}}">
     <view class="card-title">{{courseBatch ? '识别成功 ' + recognizedCount + ' 条课程安排' : '核对安排 · ' + batch.length + ' 条'}}</view>
+    <view wx:if="{{courseBatch && courseTimingApplied}}" class="notice">缺失钟点已按你确认的演示作息预填，请核对后保存。</view>
     <bounded-scroll watch-data="{{[batch, courseFailures]}}">
     <view wx:if="{{courseBatch && courseFailures.length}}" class="notice">
       <view class="card-title">未完整识别 / 未导入</view>

@@ -20,6 +20,18 @@ test('未同意上传不访问文件；识别后保留可核对文字，不自�
   const no=page(false);await no.p.chooseCourseFile({currentTarget:{dataset:{kind:'file'}}});assert.equal(no.uploads(),0);
   const yes=page();await yes.p.chooseCourseFile({currentTarget:{dataset:{kind:'file'}}});assert.equal(yes.uploads(),1);assert.equal(yes.calls(),0);assert.match(yes.p.data.courseText,/数学/);assert.equal(yes.p.data.extracting,false);
 });
+test('统一节次作息按上下午晚间换算，仅确认后传给模型，不自动保存',async()=>{
+  let context='';const c=page(true,{courseDraftsFromText:async(text,value)=>{context=value;return {items:[],notes:[],model:'test'};}});
+  c.p.data.courseText='周一第2至4节数学';
+  assert.equal(c.p.courseTimingContext(),'');
+  c.p.toggleCourseTiming();await c.p.generateCourses();
+  assert.match(context,/第1节08:30—09:15/);assert.match(context,/第2节09:25—10:10/);
+  assert.match(context,/第5节14:00—14:45/);assert.match(context,/第9节18:30—19:15/);
+  assert.match(context,/文件已给出明确钟点时优先/);assert.equal(c.p.data.courseTimingApplied,true);
+  c.p.data.courseMorning='08:00';assert.match(c.p.courseTimingContext(),/第2节08:55—09:40/);
+  c.p.data.courseAfternoon='10:00';assert.throws(()=>c.p.courseTimingContext(),/重叠/);
+  const no=page(false);no.p.data.courseText='第1节数学';no.p.toggleCourseTiming();await no.p.generateCourses();assert.equal(no.calls(),0);
+});
 test('成功数量不包含截断或缺时间课程，未导入课程保留具体原因',()=>{
   const complete={title:'数学',date:'2026-09-07',startTime:'08:30',endTime:'10:00',repeatKind:'weekly',weekdays:[1],until:'2027-01-07'};
   const result=summary.summarizeCourses([complete,{...complete,title:'英语',recognitionIssue:'教室被截断'},{...complete,title:'物理',endTime:null}],[{title:'截图底部课程',reason:'色块不完整'}]);

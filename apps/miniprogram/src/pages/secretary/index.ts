@@ -9,6 +9,7 @@ import { summarizeCourses, CourseFailure } from '../../services/course-summary';
 Page({
   onFeedbackDismiss() { this.setData({ error: '', statusError: '' }); },
   data: {
+    courseTimingEnabled: false, courseMorning: '08:30', courseAfternoon: '14:00', courseEvening: '18:30', courseLessonMinutes: '45', courseBreakMinutes: '10', courseTimingPreview: '', courseTimingApplied: false,
     courseBatch: false, recognizedCount: 0, courseFailures: [] as CourseFailure[], omittedCourses: [] as CourseFailure[],
     courseText: '', courseContext: '', courseFileName: '', courseNotes: [] as string[], extracting: false, courseImagePath: '', courseImageSize: 0,
     batch: [] as BatchItem[], batchNotes: [] as string[], batchModel: '', batchEdit: -1,
@@ -49,6 +50,29 @@ Page({
   onUtterance(event: WechatMiniprogram.Input) { this.setData({ utterance: event.detail.value }); },
   onCourseText(event: WechatMiniprogram.Input) { this.setData({ courseText: event.detail.value }); },
   onCourseContext(event: WechatMiniprogram.Input) { this.setData({ courseContext: event.detail.value }); },
+  toggleCourseTiming() { if (!this.data.drafting && !this.data.saving) this.setData({courseTimingEnabled: !this.data.courseTimingEnabled}); },
+  onCourseTiming(event: WechatMiniprogram.Input | WechatMiniprogram.PickerChange) {
+    const key=String(event.currentTarget.dataset.field);
+    if (!this.data.drafting && !this.data.saving && ['courseMorning','courseAfternoon','courseEvening','courseLessonMinutes','courseBreakMinutes'].includes(key)) this.setData({[key]:String(event.detail.value),courseTimingPreview:''});
+  },
+  courseTimingContext() {
+    if (!this.data.courseTimingEnabled) return '';
+    const duration=Number(this.data.courseLessonMinutes), gap=Number(this.data.courseBreakMinutes);
+    if (!Number.isInteger(duration)||duration<20||duration>120||!Number.isInteger(gap)||gap<0||gap>60) throw Error('每节课请填20—120分钟，课间填0—60分钟');
+    const starts=[this.data.courseMorning,this.data.courseAfternoon,this.data.courseEvening].map(time=>{
+      if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(time))throw Error('请选择上午、下午和晚上的开始时间');
+      return Number(time.slice(0,2))*60+Number(time.slice(3));
+    });
+    const format=(n:number)=>String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+    const rows:string[]=[];
+    starts.forEach((start,block)=>{
+      const end=start+4*duration+3*gap;
+      if(end>=1440||(block<2&&end>starts[block+1]))throw Error('节次时间重叠或跨天，请调整课长、课间或下午/晚上起始时间');
+      for(let i=0;i<4;i++){const from=start+i*(duration+gap);rows.push(`第${block*4+i+1}节${format(from)}—${format(from+duration)}`);}
+    });
+    this.setData({courseTimingPreview:rows.join('；')});
+    return '用户确认使用以下预填作息补齐缺失时间（演示估算，并非学校官方作息）：'+rows.join('；')+'。上午1—4节，下午5—8节，晚上9—12节；跨节课程取首节开始至末节结束。文件已给出明确钟点时优先用原文；超出12节或节次不明确时仍需补充，不得猜测。';
+  },
   async chooseCourseFile(event: WechatMiniprogram.TouchEvent) {
     if (this.data.extracting || this.data.drafting || this.data.saving) return;
     const consent = await wx.showModal({ title: '选择课表文件', content: '图片先在本机预览，确认整理时原图会发送给模型；PDF和表格先在后台提取文字。文件不保存到数据库，请先裁剪学号等无关信息。' });
@@ -81,16 +105,21 @@ Page({
   async generateCourses() {
     if (this.data.extracting || this.data.drafting || this.data.saving) return;
     if (!this.data.courseImagePath && !this.data.courseText.trim()) { this.setData({ error: '请先选择课表图片或上传并核对课表文字' }); return; }
-    const confirm = await wx.showModal({ title: '整理课程草稿', content: (this.data.courseImagePath ? '将课表原图和补充说明发送给已配置模型，产生图片调用费用。' : '将核对后的课表文字与补充说明发给已配置模型。') + '现有未保存草稿将被替换。结果仍需逐条核对并确认后保存。' });
+    let context:string;
+    try { context=[this.data.courseContext,this.courseTimingContext()].filter(Boolean).join('\n'); if(context.length>1000)throw Error('补充说明与作息表合计超过1000字，请缩短补充说明'); }
+    catch(error){this.setData({error:errorMessage(error)});return;}
+    const timingApplied=this.data.courseTimingEnabled;
+    const confirm = await wx.showModal({ title: '整理课程草稿', content: (this.data.courseImagePath ? '将课表原图和补充说明发送给已配置模型，产生图片调用费用。' : '将核对后的课表文字与补充说明发给已配置模型。') + (timingApplied?'缺失时间将按所选演示作息补齐，请核对预填值。':'') + '现有未保存草稿将被替换。结果仍需逐条核对并确认后保存。' });
     if (!confirm.confirm || this._disposed) return;
     const epoch = ++this._draftEpoch;
     this.setData({ drafting: true, error: '' });
     try {
       const result = this.data.courseImagePath
-        ? await courseDraftsFromImage(this.data.courseImagePath, this.data.courseFileName, this.data.courseImageSize, this.data.courseContext)
-        : await courseDraftsFromText(this.data.courseText, this.data.courseContext);
+        ? await courseDraftsFromImage(this.data.courseImagePath, this.data.courseFileName, this.data.courseImageSize, context)
+        : await courseDraftsFromText(this.data.courseText, context);
       if (epoch !== this._draftEpoch) return;
       const summary = summarizeCourses(result.items, result.unrecognized || []);
+      this.setData({courseTimingApplied:timingApplied});
       this.setData({ courseBatch: true, recognizedCount: summary.recognized, courseFailures: summary.failures, omittedCourses: result.unrecognized || [], batch: result.items.map(item => ({ ...item, selected: true, saved: false })), batchNotes: result.notes, batchModel: result.model, draft: null, showForm: false, batchEdit: -1,
         messages: [{ id: 0, role: 'secretary', text: `课表整理出${result.items.length}类草稿。请核对下方说明和每条课程，尚未写入日程。` }] });
     } catch (error) { if (epoch === this._draftEpoch) this.setData({ error: errorMessage(error) }); }
