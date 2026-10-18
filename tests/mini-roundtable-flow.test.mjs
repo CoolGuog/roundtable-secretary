@@ -58,7 +58,7 @@ test('两份独立页面通过真实 HTTP 完成加入、授权、撤回、重�
       startTime: '09:00', endTime: '18:00', durationMinutes: 60 });
     await a.open(room.id); await b.rooms.joinRoom(room.inviteCode); await b.open(room.id); await a.tick();
     assert.equal(a.page.data.room.members.length, 2);
-    a.page.consent(); b.page.consent(); await Promise.all([a.idle(), b.idle()]); await a.tick();
+    // 加入时已自动启用忙闲，无需逐个点击授权。
     assert.ok(a.page.data.room.members.every(member => member.shareBusy));
     await a.page.findTime(); a.page.chooseSlot({ currentTarget: { dataset: { index: 0 } } }); await a.idle(); await b.tick();
     assert.equal(b.page.data.proposal.status, 'OPEN');

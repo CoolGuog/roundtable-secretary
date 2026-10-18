@@ -3,7 +3,7 @@
   <text class="eyebrow">AROUND THE TABLE</text><view class="title">各有安排，<view>坐下来商量。</view></view>
   <view class="subtitle">发起一次活动，邀请两三位伙伴。</view><view class="muted spaced">{{mode}}</view>
   <view wx:if="{{local}}" class="notice">本机模式可预览圆桌流程。邀请码和多人加入需要后台模式。</view>
-  <view wx:else class="notice">加入后可看到成员昵称；日程与记忆默认不共享。协商和全员确认功能仍在建设中。</view>
+  <view wx:else class="notice">创建或加入即同意秘书参与协商：本人秘书读取相关日期的日程名称、时间与偏好并发送给已配置模型；不会向其他成员公开这些原始信息。退出圆桌即可停止参与，最终日程仍需全员确认。</view>
   <view wx:if="{{!form}}" class="two-col"><view><button class="primary create-room" bindtap="newRoom" disabled="{{busy || loading}}">发起圆桌</button></view><view wx:if="{{!local}}"><button class="secondary join-room" bindtap="joinForm" disabled="{{busy || loading}}">邀请码加入</button></view></view>
   <view wx:if="{{form}}" class="card">
     <view class="card-title">{{form === 'create' ? '一次共同活动' : '加入圆桌'}}</view>

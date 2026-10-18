@@ -3,16 +3,13 @@
   <view class="title">各位秘书协商</view>
   <view class="subtitle">各自考虑主人的安排，共同寻找讨论时间。</view>
   <view class="card" wx:if="{{state}}">
-    <view class="card-title">个人秘书授权</view>
-    <view wx:for="{{state.members}}" wx:key="index" class="member"><text>{{item.name}}{{item.isMe ? '（我）' : ''}}</text><text>{{item.authorized ? '秘书已授权' : item.shareBusy ? '待授权秘书' : '待授权忙闲'}}</text></view>
-    <view class="muted spaced">先在圆桌详情授权忙闲，再在这里授权秘书使用本人的偏好。授权和过程暂保留24小时，后台重启会清空。</view>
-    <view wx:if="{{!authorized}}" class="spaced"><switch checked="{{shareDetails}}" bindchange="onDetails" />允许我的秘书读取日程名称和时间，理解课程安排</view>
-    <view wx:if="{{authorized}}" class="muted spaced">{{state.ownDetailsAuthorized ? '本人已授权日程名称与时间读取' : '本人仅授权忙闲，未授权日程名称；若需理解课程，请撤回后重新选择授权'}}</view>
-    <button class="secondary" bindtap="consent" disabled="{{busy || !state.enabled || !state.roomOpen}}">{{authorized ? '撤回秘书授权' : '授权我的秘书'}}</button>
+    <view class="card-title">参与协商的秘书</view>
+    <view wx:for="{{state.members}}" wx:key="index" class="member"><text>{{item.name}}{{item.isMe ? '（我）' : ''}}</text><text>{{item.authorized ? '秘书已就绪' : '暂不可协商'}}</text></view>
+    <view class="muted spaced">加入圆桌后秘书自动参与。本人秘书可读取相关日期的日程名称、时间与偏好并发送给已配置模型；其他成员只看到协商结果。退出或被移除后停止参与。</view>
     <picker wx:if="{{state.isOwner}}" range="{{activityNames}}" value="{{activityIndex}}" bindchange="onActivity" disabled="{{busy || state.run.status === 'RUNNING'}}"><view class="field">本次类型：{{activityNames[activityIndex]}} · 点击选择</view></picker>
     <view wx:if="{{state.isOwner}}" class="muted spaced">请按实际活动选择；“仅娱乐”的规则只在选择娱乐活动时生效。默认不会额外增加限制。</view>
     <view wx:if="{{!state.enabled}}" class="notice">后台尚未接入真实模型。</view>
-    <view wx:if="{{state.members.length < 2 || state.members.length > 5}}" class="notice">支持2至5位成员，需全员授权。</view>
+    <view wx:if="{{state.members.length < 2 || state.members.length > 5}}" class="notice">支持2至5位成员，加入后自动参与。</view>
     <button wx:if="{{state.isOwner}}" class="primary" bindtap="start" disabled="{{busy || !state.enabled || !state.roomOpen || state.members.length < 2 || state.members.length > 5 || state.run.status === 'RUNNING'}}">{{state.run.status === 'RUNNING' ? '秘书正在协商…' : '开始协商（最多5轮）'}}</button>
   </view>
   <view class="card" wx:if="{{state.run}}">

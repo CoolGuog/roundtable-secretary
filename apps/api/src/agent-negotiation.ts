@@ -14,8 +14,19 @@ class AgentFlowError extends Error {}
 type Run = { id: string; version: number; created: number; leisure:boolean; activityKind:string; status: 'RUNNING'|'READY'|'NO_AGREEMENT'|'FAILED'; events: Event[]; message: string; slot?: Slot; proposalId?: string; explanations?:Record<string,string[]> };
 const keys = (value: unknown, expected: string[]) => { const body = inputObject(value); if (Object.keys(body).some(key => !expected.includes(key))) throw new BadRequestException('不支持额外字段'); return body; };
 
-/** 单进程Demo运行状态；授权与过程24小时失效，重启清空，日程仍由原有持久化确认流程写入。 */
+/** 单进程Demo协商过程保留24小时；成员默认参与由圆桌成员关系恢复，日程仍需全员确认。 */
 export class AgentNegotiation {
+  private disabled = new Set<string>();
+  private async joinedConsents(userId:string,room:Room) {
+    if(room.status!=='OPEN')return;
+    const identities=await this.store.rooms.agentMembers(userId,room.id);
+    const entries=this.consents.get(room.id)||new Map<string,Consent>();
+    for(const identity of identities){const member=room.members.find(m=>m.id===identity.id);
+      if(member?.shareBusy&&!entries.has(member.id)&&!this.disabled.has(member.id))entries.set(member.id,{userId:identity.userId,memberId:member.id,expires:Number.MAX_SAFE_INTEGER,busyStamp:member.consentUpdatedAt,shareDetails:true});
+    }
+    for(const id of entries.keys())if(!identities.some(m=>m.id===id))entries.delete(id);
+    this.consents.set(room.id,entries);
+  }
   private consents = new Map<string, Map<string, Consent>>();
   private runs = new Map<string, Run>();
   private active = 0;
@@ -32,6 +43,7 @@ export class AgentNegotiation {
   }
   async status(userId: string, roomId: string) {
     this.prune(); const room = await this.store.rooms.get(userId, roomId), run = this.runs.get(roomId);
+    await this.joinedConsents(userId,room);
     return { enabled: Boolean(this.model), isOwner: room.isOwner, roomOpen: room.status === 'OPEN', ownDetailsAuthorized: Boolean(this.authorized(room,room.members.find(m=>m.isMe)!.id)?.shareDetails), members: room.members.map(member => ({ name: member.name, isMe: member.isMe, shareBusy: member.shareBusy, authorized: Boolean(this.authorized(room, member.id)) })),
       run: run ? run.version === room.version && room.members.every(member => this.authorized(room, member.id)) ? { id: run.id, status: run.status, events: run.events, message: run.message, slot: run.slot, proposalId: run.proposalId, activityKind:run.activityKind, explanation:run.explanations?.[userId]||[] } : { id: run.id, status:'FAILED', events:[], message:'成员或授权已变化，旧协商不再有效；请重新授权并协商' } : null };
   }
@@ -44,8 +56,8 @@ export class AgentNegotiation {
     const entries = this.consents.get(roomId) || new Map<string, Consent>();
     const running=this.runs.get(roomId);
     if(running?.status==='RUNNING'){running.status='FAILED';running.message='秘书授权已变化，协商已停止，请重新开始';}
-    if (input.enabled) entries.set(member.id, { userId, memberId: member.id, expires: Date.now()+86400000, busyStamp: member.consentUpdatedAt, shareDetails:input.shareDetails===true });
-    else { entries.delete(member.id); const run = this.runs.get(roomId); if (run?.status === 'RUNNING') { run.status='FAILED';run.message='成员撤回授权，协商已停止'; } }
+    if (input.enabled) {this.disabled.delete(member.id);entries.set(member.id, { userId, memberId: member.id, expires: Number.MAX_SAFE_INTEGER, busyStamp: member.consentUpdatedAt, shareDetails:input.shareDetails===true });}
+    else { this.disabled.add(member.id);entries.delete(member.id); const run = this.runs.get(roomId); if (run?.status === 'RUNNING') { run.status='FAILED';run.message='成员撤回授权，协商已停止'; } }
     this.consents.set(roomId, entries); return this.status(userId, roomId);
   }
   private async check(userId: string, roomId: string, run: Run) {
@@ -59,6 +71,7 @@ export class AgentNegotiation {
     this.prune();
     const room = await this.store.rooms.get(userId, roomId);
     if (!room.isOwner) throw new ForbiddenException('请由圆桌发起人启动协商');
+    await this.joinedConsents(userId,room);
     if (!this.model) throw new BadRequestException('需要先在后台接入真实模型');
     if (room.status !== 'OPEN' || room.members.length < 2 || room.members.length > 5 || !room.members.every(member => this.authorized(room, member.id))) throw new BadRequestException('需要2至5位成员，且全员授权忙闲及个人秘书');
     const last = this.runs.get(roomId);

@@ -14,7 +14,7 @@ export async function roomContract(t, call, user) {
     assert.equal(response.status, 201);
     const room = await response.json();
     assert.equal(room.members.length, 1);
-    assert.equal(room.members[0].shareBusy, false);
+    assert.equal(room.members[0].shareBusy, true);
     assert.match(room.inviteCode, /^[A-F0-9]{20}$/);
     assert.equal((await call(`/roundtables/${room.id}`, 'GET', b.token)).status, 404);
     assert.deepEqual(await (await call('/roundtables', 'GET', b.token)).json(), []);
@@ -44,7 +44,7 @@ export async function roomContract(t, call, user) {
     assert.equal((await call(`/roundtables/${id}/membership`, 'PUT', b.token, { shareBusy: 'true' })).status, 400);
     view = await (await call(`/roundtables/${id}/membership`, 'PUT', b.token, { shareBusy: true })).json();
     assert.equal(view.members.find(member => member.isMe).shareBusy, true);
-    assert.equal(view.members.find(member => !member.isMe).shareBusy, false);
+    assert.equal(view.members.find(member => !member.isMe).shareBusy, true);
     assert.ok(view.members.find(member => member.isMe).consentUpdatedAt);
     view = await (await call(`/roundtables/${id}/membership`, 'PUT', b.token, { shareBusy: false })).json();
     assert.equal(view.members.find(member => member.isMe).shareBusy, false);

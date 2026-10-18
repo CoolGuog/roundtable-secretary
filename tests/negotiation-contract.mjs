@@ -214,7 +214,8 @@ export async function negotiationContract(t, call, user) {
     for (const account of [b, c]) await call('/roundtables/join', 'POST', account.token, { code: created.inviteCode });
     await call(`/roundtables/${created.id}/membership`, 'PUT', a.token, { shareBusy: true });
     await call(`/roundtables/${created.id}/membership`, 'PUT', b.token, { shareBusy: true });
-    // 丙未授权，他在该时段的安排不会被算进候选
+    await call(`/roundtables/${created.id}/membership`, 'PUT', c.token, { shareBusy: false });
+    // 丙明确撤回忙闲，他在该时段的安排不会被算进候选
     const slots = (await availability(call, a.token, created.id)).slots;
     const slot = slots[0];
     await call('/me/arrangements', 'POST', c.token, arrangement(slot.date, slot.startTime, slot.endTime, '丙的私事'));

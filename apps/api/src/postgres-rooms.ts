@@ -43,11 +43,12 @@ export class PostgresRooms implements RoomStore {
   }
   async list(userId: string) { return (await this.db.roundtable.findMany({ where: this.where(userId), include, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] })).map(room => dto(room, userId)); }
   async get(userId: string, id: string) { return dto(await this.accessible(this.db, userId, id), userId); }
+  async agentMembers(userId:string,id:string){const room=await this.accessible(this.db,userId,id);return room.members.map(m=>({id:m.id,userId:m.userId}));}
   async create(userId: string, value: unknown) {
     const input = validateRoom(value);
     return this.transaction(async tx => {
       await this.quota(tx, userId);
-      return dto(await tx.roundtable.create({ data: { ...input, ownerId: userId, ...newInvitation(), members: { create: { userId } } }, include }), userId);
+      return dto(await tx.roundtable.create({ data: { ...input, ownerId: userId, ...newInvitation(), members: { create: { userId, shareBusy: true, consentUpdatedAt: new Date() } } }, include }), userId);
     });
   }
   async join(userId: string, value: unknown) {
@@ -58,7 +59,7 @@ export class PostgresRooms implements RoomStore {
       if (room.members.some(member => member.userId === userId)) return dto(room, userId);
       await this.quota(tx, userId);
       if (room.members.length >= 5) throw new BadRequestException('圆桌已满，最多 5 人');
-      return dto(await tx.roundtable.update({ where: { id: room.id }, data: { version: { increment: 1 }, members: { create: { userId } } }, include }), userId);
+      return dto(await tx.roundtable.update({ where: { id: room.id }, data: { version: { increment: 1 }, members: { create: { userId, shareBusy: true, consentUpdatedAt: new Date() } } }, include }), userId);
     });
   }
   async consent(userId: string, id: string, value: unknown) {

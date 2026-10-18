@@ -7,6 +7,7 @@ export type RoomInput = { title: string; goal: string; dateFrom: string; dateTo:
 export type RoomMember = { id: string; name: string; role: 'OWNER' | 'MEMBER'; isMe: boolean; shareBusy: boolean; consentUpdatedAt: string | null };
 export type Room = RoomInput & { id: string; status: 'OPEN' | 'CLOSED'; version: number; createdAt: string; isOwner: boolean; members: RoomMember[]; inviteCode?: string; inviteExpiresAt?: string };
 export interface RoomStore {
+  agentMembers(userId:string,id:string): {id:string;userId:string}[] | Promise<{id:string;userId:string}[]>;
   notes(userId:string,id:string): RoomNote[] | Promise<RoomNote[]>;
   addNote(userId:string,id:string,value:unknown): RoomNote[] | Promise<RoomNote[]>;
   list(userId: string): Room[] | Promise<Room[]>;
@@ -81,6 +82,7 @@ export class MemoryRooms implements RoomStore {
   }
   list(userId: string) { return [...this.rooms.values()].filter(room => room.members.some(member => member.userId === userId)).reverse().map(room => this.dto(room, userId)); }
   get(userId: string, id: string) { return this.dto(this.accessible(userId, id), userId); }
+  agentMembers(userId:string,id:string){return this.accessible(userId,id).members.map(m=>({id:m.id,userId:m.userId}));}
   reviewContext(userId: string, id: string) {
     const room = this.accessible(userId, id);
     return { ownerId: room.ownerId, dateFrom: room.dateFrom, dateTo: room.dateTo,
@@ -96,7 +98,7 @@ export class MemoryRooms implements RoomStore {
   create(userId: string, value: unknown) {
     const input = validateRoom(value); this.quota(userId);
     const room: StoredRoom = { ...input, id: randomUUID(), ownerId: userId, status: 'OPEN', version: 1, createdAt: new Date().toISOString(), ...newInvitation(),
-      members: [{ id: randomUUID(), userId, shareBusy: false, consentUpdatedAt: null }] };
+      members: [{ id: randomUUID(), userId, shareBusy: true, consentUpdatedAt: new Date().toISOString() }] };
     this.rooms.set(room.id, room); return this.dto(room, userId);
   }
   join(userId: string, value: unknown) {
@@ -106,7 +108,7 @@ export class MemoryRooms implements RoomStore {
     if (room.members.some(member => member.userId === userId)) return this.dto(room, userId);
     this.quota(userId);
     if (room.members.length >= 5) throw new BadRequestException('圆桌已满，最多 5 人');
-    room.members.push({ id: randomUUID(), userId, shareBusy: false, consentUpdatedAt: null }); room.version++;
+    room.members.push({ id: randomUUID(), userId, shareBusy: true, consentUpdatedAt: new Date().toISOString() }); room.version++;
     return this.dto(room, userId);
   }
   consent(userId: string, id: string, value: unknown) {

@@ -30,6 +30,24 @@ async function setup(behavior) {
   return {app,call,a,b,c,root,day,requests,authorize,wait};
 }
 const answer=(a,choice)=>({action:'answer',choice,decision:choice===a.offer?'accept':'counter'});
+test('加入即默认参与并读取本人课程；不点击授权也能协商，退出后无法读取',async()=>{
+ const s=await setup(a=>answer(a,a.offer??0));
+ try {
+  await s.call('/me/arrangements',s.a,{title:'AUTO_A_COURSE',date:s.day,startTime:'17:00',endTime:'18:00'});
+  assert.equal((await s.call(s.root+'/agents',s.c)).status,404);
+  const state=(await s.call(s.root+'/agents',s.a)).data;
+  assert.ok(state.members.every(m=>m.authorized&&m.shareBusy));assert.equal(state.ownDetailsAuthorized,true);
+  assert.equal((await s.call(s.root+'/agents/start',s.a,{})).status,201);
+  const done=await s.wait();assert.equal(done.run.status,'READY');
+  assert.ok(s.requests.some(r=>JSON.stringify(r.agent.tools.read_schedule).includes('AUTO_A_COURSE')));
+  assert.ok(!JSON.stringify(done.run.events).includes('AUTO_A_COURSE'));
+  const bRequests=s.requests.filter(r=>r.agent.tools.read_preferences?.some(m=>m.content==='B_PRIVATE'));
+  assert.ok(bRequests.every(r=>!JSON.stringify(r).includes('AUTO_A_COURSE')));
+  assert.equal((await s.call('/me/arrangements',s.b)).data.length,0);
+  await s.call(s.root+'/membership',s.b,undefined,'DELETE');
+  assert.equal((await s.call(s.root+'/agents',s.b)).status,404);
+ }finally{await s.app.close();}
+});
 
 test('五人协商不能忽略中间成员异议，五人全部亲自接受才写入',async()=>{
  const s=await setup(a=>answer(a,a.round>=2||a.tools.read_preferences.some(p=>p.content==='THIRD_PRIVATE')?1:0));
@@ -105,7 +123,7 @@ test('两位Agent调用工具并根据对方反馈调整；私有数据隔离且
   const s=await setup(a=>answer(a,a.tools.read_preferences.some(p=>p.content==='B_PRIVATE')?1:(a.offer??0)));
   try{
     assert.equal((await s.call(s.root+'/agents',s.c)).status,404);
-    assert.equal((await s.call(s.root+'/agents/start',s.a,{})).status,400);
+    assert.ok((await s.call(s.root+'/agents',s.a)).data.members.every(m=>m.authorized));
     await s.authorize();
     assert.equal((await s.call(s.root+'/agents/start',s.b,{})).status,403);
     const starts=await Promise.all([s.call(s.root+'/agents/start',s.a,{}),s.call(s.root+'/agents/start',s.a,{})]);assert.ok(starts.some(r=>r.status===201));assert.ok(starts.every(r=>r.status===201||r.status===429));

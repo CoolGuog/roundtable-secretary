@@ -52,7 +52,7 @@ export async function createRoom(input: RoomInput): Promise<Room> {
   const all = records();
   if (all.filter(room => room.status === 'OPEN').length >= 20) throw new Error('最多同时参与 20 个进行中的圆桌');
   const room: Room = { ...value, id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'OPEN', version: 1, createdAt: new Date().toISOString(), isOwner: true,
-    members: [{ id: 'local-self', name: '本机演示用户', role: 'OWNER', isMe: true, shareBusy: false, consentUpdatedAt: null }] };
+    members: [{ id: 'local-self', name: '本机演示用户', role: 'OWNER', isMe: true, shareBusy: true, consentUpdatedAt: new Date().toISOString() }] };
   all.push(room); wx.setStorageSync(dataKey, all); return room;
 }
 /** 共同可用时间。只返回时段，不含任何成员的日程标题。 */
