@@ -4,6 +4,7 @@ import { createCanvas, loadImage } from '@napi-rs/canvas';
 import ExcelJS from 'exceljs';
 import { fromBuffer } from 'yauzl';
 import { Readable } from 'node:stream';
+import { dirname, join } from 'node:path';
 
 const LIMIT = 12000;
 const checkText = (text: string) => {
@@ -59,7 +60,11 @@ async function extract() {
     notes.push('已保留单元格位置；请核对合并单元格对应的星期和节次。');
   } else if (extension === 'pdf') {
     const pdfjs = await (new Function('return import("pdfjs-dist/legacy/build/pdf.mjs")')() as Promise<any>);
-    const task = pdfjs.getDocument({ data: new Uint8Array(buffer), isEvalSupported: false, useSystemFonts: true, stopAtErrors: true });
+    // 中文 PDF 的预定义 CID 编码需要本地 CMap；否则提取和 OCR 前的渲染都会丢字。
+    const pdfAssets = dirname(require.resolve('pdfjs-dist/package.json'));
+    const task = pdfjs.getDocument({ data: new Uint8Array(buffer), isEvalSupported: false, useSystemFonts: true, stopAtErrors: true,
+      cMapUrl: join(pdfAssets, 'cmaps').replace(/\\/g, '/') + '/', cMapPacked: true,
+      standardFontDataUrl: join(pdfAssets, 'standard_fonts').replace(/\\/g, '/') + '/' });
     try {
       const document = await task.promise;
       if (document.numPages > 3) throw Error('PDF最多3页，请拆分后上传');

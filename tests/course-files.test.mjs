@@ -6,10 +6,18 @@ import { extractCourseFile, validateCourseFile } from '../apps/api/dist/course-f
 import { createApp } from '../apps/api/dist/app.js';
 import { existsSync } from 'node:fs';
 const upload = (buffer, originalname) => ({ buffer: Buffer.from(buffer), originalname, size: buffer.length });
-const pdf = (jpeg) => {
+const pdf = (jpeg, cjk = false) => {
   const content=jpeg ? 'q 380 0 0 104 10 50 cm /Image1 Do Q' : 'BT /F1 16 Tf 40 160 Td (Monday Math 08:30-10:00) Tj ET';
   const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',`<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
   if (jpeg) { objects[2]=objects[2].replace('/Font << /F1 4 0 R >>','/Font << /F1 4 0 R >> /XObject << /Image1 6 0 R >>'); objects.push(`<< /Type /XObject /Subtype /Image /Width 1100 /Height 300 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n${jpeg.toString('latin1')}\nendstream`); }
+  if (cjk) {
+    objects[3]='<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [6 0 R] >>';
+    objects.push('<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> >>');
+    const words='星期一高等数学课程安排时间上午八点半';
+    const hex=[...words].map(c=>c.charCodeAt(0).toString(16).padStart(4,'0')).join('');
+    const stream=`BT /F1 16 Tf 20 160 Td <${hex}> Tj ET`;
+    objects[4]=`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  }
   let text='%PDF-1.4\n'; const offsets=[0];
   objects.forEach((o,i)=>{offsets.push(Buffer.byteLength(text,'latin1'));text+=`${i+1} 0 obj\n${o}\nendobj\n`;});
   const start=Buffer.byteLength(text,'latin1'); text+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n${offsets.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`;
@@ -30,6 +38,9 @@ test('XLSX和CSV保留行列位置，公式拒绝识别', async () => {
 });
 test('PDF文字提取以及本机中文OCR', {timeout:90000}, async () => {
   const result=await extractCourseFile(upload(pdf(),'课程.pdf')); assert.match(result.text,/Monday Math/);
+  const chinese=await extractCourseFile(upload(pdf(undefined,true),'中文编码课表.pdf'));
+  assert.match(chinese.text,/星期一高等数学/);
+  assert.ok(!chinese.notes.some(note=>note.includes('扫描')));
   const canvas=createCanvas(1100,300), ctx=canvas.getContext('2d');
   const font='C:/Windows/Fonts/msyh.ttc'; if(existsSync(font)) GlobalFonts.registerFromPath(font,'CourseTest');
   ctx.fillStyle='white';ctx.fillRect(0,0,1100,300);ctx.fillStyle='black';ctx.font='40px CourseTest';
