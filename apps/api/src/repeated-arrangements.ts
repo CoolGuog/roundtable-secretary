@@ -8,6 +8,7 @@ import { RepeatSeries, repeatRule, expandRepeat, occurrenceId, occurs, reviseRep
 export class RepeatedArrangements {
   private memory = new Map<string, { ownerId: string; document: RepeatSeries; requestKey: string | null; fingerprint: string }>();
   constructor(private db?: PrismaClient) {}
+  clearMemory(ownerId: string) { for (const [id,row] of this.memory) if(row.ownerId===ownerId)this.memory.delete(id); }
   private async transaction<T>(run: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     for (let attempt = 0; attempt < 4; attempt++) {
       try { return await this.db!.$transaction(run, { isolationLevel: 'Serializable' }); }

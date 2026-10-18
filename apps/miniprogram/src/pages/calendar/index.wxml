@@ -1,6 +1,7 @@
 <feedback-toast binddismiss="onFeedbackDismiss" message="{{error}}" />
 <view class="page compact-calendar">
   <view class="row calendar-header"><view class="card-title">我的日程</view><button class="link-button" bindtap="openWeek">周视图 →</button></view>
+  <button class="link-button" bindtap="clearAll" disabled="{{loading || saving || deletingId}}">清空我的全部日程</button>
   <view class="card calendar-tools">
     <view class="row date-navigation">
       <button class="day-arrow" bindtap="previousDay" disabled="{{selectedDate === '2020-01-01'}}">‹</button>

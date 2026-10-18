@@ -170,6 +170,12 @@ export class PostgresStore implements PersonalStore {
     const result = await this.db.arrangement.deleteMany({ where: { id, ownerId: userId } });
     if (result.count === 0) throw new NotFoundException('安排不存在');
   }
+  async clearArrangements(userId: string) {
+    await this.transaction(async tx => {
+      await tx.arrangement.deleteMany({where:{ownerId:userId}});
+      await tx.recurringArrangement.deleteMany({where:{ownerId:userId}});
+    });
+  }
   async listMemories(userId: string) {
     return (await this.db.personalMemory.findMany({ where: { userId }, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }] })).map(memoryDto);
   }

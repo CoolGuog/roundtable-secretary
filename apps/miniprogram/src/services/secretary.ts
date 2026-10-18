@@ -234,3 +234,8 @@ export function clearLocalDemo() {
   wx.removeStorageSync(dataKey); wx.removeStorageSync(legacySessionKey);
   if (config.authMode === 'demo') { sessionEpoch++; sessionPromise = undefined; pendingSaves.clear(); wx.removeStorageSync(sessionKey()); }
 }
+export async function clearAllArrangements() {
+  if(config.mode==='api') { await request('/me/arrangements','DELETE',{confirm:'DELETE_ALL'}); }
+  else { wx.removeStorageSync(dataKey); wx.removeStorageSync('roundtable.demo.recurring.v1'); }
+  pendingSaves.clear();
+}

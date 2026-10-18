@@ -260,6 +260,10 @@ Page({
         this.setData({ [`batch[${index}].saved`]: true, [`batch[${index}].selected`]: false, [`batch[${index}].uncertain`]: false });
       }
       wx.showToast({ title: `已保存${saved}类安排`, icon: 'success' });
+      if (this.data.courseBatch && this.data.batch.every((item:BatchItem)=>item.saved) && !this.data.omittedCourses.length) {
+        this.setData({courseBatch:false,courseText:'',courseContext:'',courseFileName:'',courseNotes:[],courseImagePath:'',courseImageSize:0,courseTimingPreview:'',courseTimingApplied:false,courseTimingEnabled:false,
+          recognizedCount:0,courseFailures:[],omittedCourses:[],batch:[],batchNotes:[],batchModel:'',batchEdit:-1,draft:null,messages:[],showForm:false,title:'',utterance:'',error:''});
+      }
       try { const records = await listArrangements(); if (!this._disposed) this.setData({ count: records.length }); } catch { /* 保存状态已记录，数量下次进入时刷新。 */ }
     } catch (error) { this.setData({ error: `本次已保存${saved}类；其余保留供重试。${errorMessage(error)}` }); }
     finally { if (!this._disposed) this.setData({ saving: false }); }

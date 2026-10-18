@@ -62,6 +62,7 @@ class DemoStore implements PersonalStore {
   private readonly users = new Map<string, User>();
   private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
   private readonly arrangements = new Map<string, Map<string, Arrangement & { sourceRoomId?: string }>>();
+  clearArrangements(userId: string) { this.arrangements.get(userId)!.clear(); this.repeated.clearMemory(userId); }
   private readonly memories = new Map<string, Map<string, PersonalMemory>>();
   private readonly createRequests = new Map<string, { fingerprint: string; arrangementId: string }>();
   private hash(token: string) { return createHash('sha256').update(token).digest('hex'); }
@@ -207,6 +208,12 @@ class PersonalController {
   @HttpCode(204)
   logout(@Req() request: AuthRequest) { return this.store.revokeSession(request.headers.authorization!.slice(7)); }
   @Get('arrangements') list(@Req() request: AuthRequest, @Query('from') from?: string, @Query('to') to?: string) { return this.store.list(request.userId!, from, to); }
+  @Delete('arrangements')
+  @HttpCode(204)
+  clearArrangements(@Req() request: AuthRequest, @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Object.keys(body).length !== 1 || (body as {confirm?:string}).confirm !== 'DELETE_ALL') throw new BadRequestException('请确认清空全部日程');
+    return this.store.clearArrangements(request.userId!);
+  }
   @Post('arrangements') create(@Req() request: AuthRequest, @Body() body: unknown) {
     return this.store.create(request.userId!, body, request.headers['idempotency-key']);
   }

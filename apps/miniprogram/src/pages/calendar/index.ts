@@ -1,5 +1,5 @@
 import {
-  Arrangement, listArrangements, updateArrangement, deleteArrangement, errorMessage, modeLabel,
+  Arrangement, listArrangements, updateArrangement, deleteArrangement, clearAllArrangements, errorMessage, modeLabel,
 } from '../../services/secretary';
 import { CalendarFilter, CalendarGroup, calendarFilters, calendarView } from '../../services/calendar-view';
 
@@ -7,6 +7,18 @@ const currentDay = () => new Date(Date.now() + 8 * 3600000).toISOString().slice(
 const shiftDay = (date: string, offset: number) => new Date(Date.parse(date + 'T00:00:00Z') + offset * 86400000).toISOString().slice(0, 10);
 Page({
   onFeedbackDismiss() { this.setData({ error: '' }); },
+  async clearAll() {
+    if(!this._visible||this.data.loading||this.data.saving||this.data.deletingId)return;
+    const epoch=this._viewEpoch;this.setData({deletingId:'all',error:''});
+    try {
+      const result=await wx.showModal({title:'清空我的全部日程？',content:'将永久删除当前账号所有日期的单次和重复日程，包括过去及未来、未显示在当前筛选中的安排。圆桌活动仅删除你自己的日程副本，不影响其他成员；偏好和圆桌记录保留。此操作不可撤销。',confirmText:'全部删除',confirmColor:'#b33b32'});
+      if(!result.confirm||!this._visible||epoch!==this._viewEpoch)return;
+      await clearAllArrangements();
+      if(!this._visible||epoch!==this._viewEpoch)return;
+      this.setData({editingId:'',items:[]});await this.reload();wx.showToast({title:'日程已清空',icon:'success'});
+    }catch(error){if(this._visible&&epoch===this._viewEpoch)this.setData({error:errorMessage(error)});}
+    finally{if(!this._disposed){this.setData({deletingId:''});if(this._visible&&epoch!==this._viewEpoch)void this.reload();}}
+  },
   data: {
     items: [] as Arrangement[], loading: false, error: '', mode: modeLabel(),
     editingId: '', editTitle: '', editDate: '', editStart: '', editEnd: '', saving: false, deletingId: '',

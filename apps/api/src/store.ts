@@ -23,6 +23,7 @@ export interface PersonalStore {
   create(userId: string, value: unknown, requestId?: unknown): unknown;
   update(userId: string, id: string, value: unknown): unknown;
   remove(userId: string, id: string, scope?: string): void | Promise<void>;
+  clearArrangements(userId: string): void | Promise<void>;
   listMemories(userId: string): PersonalMemory[] | Promise<PersonalMemory[]>;
   createMemory(userId: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;
   updateMemory(userId: string, id: string, value: unknown): PersonalMemory | Promise<PersonalMemory>;

@@ -9,6 +9,23 @@ const list = async (call, token, from = '2027-01-04', to = '2027-01-18') => {
   assert.equal(response.status, 200); return response.json();
 };
 export async function recurrenceContract(t, call, user) {
+  await t.test('清空全部日程需要确认，仅删除本人单次及完整重复系列', async()=>{
+    const a=await user('清空甲'),b=await user('清空乙');
+    for(const account of [a,b]) {
+      assert.equal((await call('/me/arrangements','POST',account.token,base)).status,201);
+      assert.equal((await call('/me/arrangements','POST',account.token,weekly)).status,201);
+    }
+    const before=await list(call,b.token);
+    assert.equal((await call('/me/arrangements','DELETE',undefined,{confirm:'DELETE_ALL'})).status,401);
+    assert.equal((await call('/me/arrangements','DELETE',a.token,{})).status,400);
+    assert.equal((await call('/me/arrangements','DELETE',a.token,{confirm:'DELETE_ALL',userId:b.user.id})).status,400);
+    assert.ok((await list(call,a.token)).length>1);
+    assert.equal((await call('/me/arrangements','DELETE',a.token,{confirm:'DELETE_ALL'})).status,204);
+    assert.deepEqual(await list(call,a.token),[]);
+    assert.deepEqual(await list(call,a.token,'2028-01-01','2028-01-14'),[]);
+    assert.deepEqual(await list(call,b.token),before);
+    for(const account of [a,b]) await call('/me/session','DELETE',account.token);
+  });
   await t.test('每周截止日期包含当天，截止后不再出现，读出类型与截止信息', async () => {
     const a = await user('每周截止');
     const response = await call('/me/arrangements', 'POST', a.token, { ...weekly, repeat: { ...weekly.repeat, until: '2027-01-13' } });

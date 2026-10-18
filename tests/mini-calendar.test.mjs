@@ -24,13 +24,14 @@ function setup() {
     { id: 'b', title: '读书', date: '2026-10-02', startTime: '11:00', endTime: '12:00' }];
   const api = {
     modeLabel: () => '后台模式', errorMessage: error => error.message,
+    clearAllArrangements: async () => { deleted.push('all'); rows.splice(0); },
     listArrangements: async (from, to) => { reads++; ranges.push([from, to]); return structuredClone(rows); },
     deleteArrangement: async (id, scope) => { deleted.push(id); scopes.push(scope); rows.splice(rows.findIndex(row => row.id === id), 1); },
     updateArrangement: async (id, fields, scope) => { updated.push(id); scopes.push(scope); Object.assign(rows.find(row => row.id === id), fields); },
   };
   vm.runInNewContext(source, { exports: {}, require: name => name.endsWith('calendar-view') ? display : api, Page: value => { page = value; }, Date: Clock,
     setTimeout: callback => { const id = ++timerId; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id),
-    wx: { showModal: modal => modals.push(modal), showActionSheet: sheet => sheets.push(sheet), showToast: toast => toasts.push(toast), switchTab() {} },
+    wx: { showModal: modal => { modals.push(modal); if(!modal.success)return new Promise(resolve=>modal.resolve=resolve); }, showActionSheet: sheet => sheets.push(sheet), showToast: toast => toasts.push(toast), switchTab() {} },
   });
   page.setData = data => Object.assign(page.data, data);
   return { page, api, rows, modals, sheets, scopes, deleted, updated, toasts, timers, ranges, reads: () => reads,
@@ -52,6 +53,13 @@ test('默认按当天展示并区分三种安排，切换远期日期重新读�
   c.page.onSelectedDate({ detail: { value: '2030-01-02' } }); await settle();
   assert.deepEqual(c.ranges.at(-1), ['2030-01-02', '2030-01-02']);
   assert.equal(c.page.data.matchingCount, 0);
+});
+test('清空日程取消或离页不删除，确认后清空并刷新',async()=>{
+  const c=setup();await c.open();
+  let pending=c.page.clearAll();c.modals.at(-1).resolve({confirm:false});await pending;assert.equal(c.deleted.length,0);
+  pending=c.page.clearAll();c.page.onHide();c.modals.at(-1).resolve({confirm:true});await pending;assert.equal(c.deleted.length,0);
+  await c.open();pending=c.page.clearAll();assert.match(c.modals.at(-1).content,/所有日期/);c.modals.at(-1).resolve({confirm:true});await pending;
+  assert.deepEqual(c.deleted,['all']);assert.equal(c.page.data.items.length,0);assert.equal(c.page.data.deletingId,'');
 });
 
 test('重复安排先选操作范围，删除仍需确认；取消或离页的旧选择不能写入', async () => {

@@ -64,3 +64,10 @@ test('批量检测内部冲突；中途失败后重试跳过已保存项', async
   await p.saveBatch(); assert.match(dialogs[0].content, /重叠/); assert.equal(p.data.batch[0].saved, true); assert.equal(p.data.batch[1].saved, false);
   await p.saveBatch(); assert.deepEqual(saved, ['上课', '午休']);
 });
+test('课表全部保存后清空导入界面，中途失败保留文件和草稿',async()=>{
+  const {p}=page();Object.assign(p.data,{courseBatch:true,courseText:'课表识别内容',courseFileName:'课表.pdf',courseImagePath:'temp.jpg',courseContext:'作息',courseNotes:['说明']});
+  await p.saveBatch();assert.equal(p.data.batch.length,0);assert.equal(p.data.courseText,'');assert.equal(p.data.courseFileName,'');assert.equal(p.data.courseImagePath,'');assert.equal(p.data.courseBatch,false);
+  const fail=page({saveArrangement:async()=>{throw Error('连接失败');}}).p;
+  Object.assign(fail.data,{courseBatch:true,courseText:'保留文字',courseFileName:'课表.pdf'});
+  await fail.saveBatch();assert.equal(fail.data.batch.length,2);assert.equal(fail.data.courseText,'保留文字');
+});
