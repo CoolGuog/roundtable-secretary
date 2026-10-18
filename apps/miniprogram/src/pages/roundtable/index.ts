@@ -195,7 +195,7 @@ Page({
   },
   rotate() { this.confirm('rotate', '更新后旧邀请码立即失效，已加入的成员不受影响。'); },
   closeRoom() { this.confirm('close', '关闭后不能再加入或修改授权，所有忙闲授权会撤回，记录仍可查看。'); },
-  leave() { this.confirm('leave', '退出后不能再查看圆桌，本次忙闲授权会删除。'); },
+  leave() { this.confirm('leave', this.data.room?.isOwner ? '你是发起人。退出将关闭圆桌并让所有成员退出，邀请码失效，秘书停止协商。已写入的日程保留。' : '仅你退出圆桌并停止秘书参与，其他成员可继续使用。已写入的日程保留。'); },
   remove(e: WechatMiniprogram.TouchEvent) { this.confirm('remove', '移除该成员并更新邀请码，旧邀请码立即失效。', String(e.currentTarget.dataset.id)); },
   async findTime() {
     if (this.data.busy || this.data.loading || this.data.finding || !this.data.fresh || !this._visible) return;

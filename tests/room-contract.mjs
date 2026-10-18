@@ -67,7 +67,6 @@ export async function roomContract(t, call, user) {
     const { id, inviteCode: code } = room;
     for (const token of [b.token, c.token,d.token,e.token]) assert.equal((await call('/roundtables/join', 'POST', token, { code })).status, 201);
     assert.equal((await call('/roundtables/join', 'POST', f.token, { code })).status, 400);
-    assert.equal((await call(`/roundtables/${id}/membership`, 'DELETE', a.token)).status, 400);
     assert.equal((await call(`/roundtables/${id}/membership`, 'DELETE', b.token)).status, 204);
     assert.equal((await call(`/roundtables/${id}`, 'GET', b.token)).status, 404);
     await call(`/roundtables/${id}/membership`, 'PUT', c.token, { shareBusy: true });
@@ -79,6 +78,17 @@ export async function roomContract(t, call, user) {
     assert.equal((await call('/roundtables/join', 'POST', b.token, { code })).status, 404);
     assert.equal((await call(`/roundtables/${id}/membership`, 'PUT', c.token, { shareBusy: true })).status, 400);
     assert.equal((await call(`/roundtables/${id}/invitation`, 'POST', a.token)).status, 400);
+    const next=await (await call('/roundtables','POST',a.token,sampleRoom)).json();
+    for(const account of [b,c])await call('/roundtables/join','POST',account.token,{code:next.inviteCode});
+    assert.equal((await call(`/roundtables/${next.id}/membership`,'DELETE',b.token)).status,204);
+    const remaining=await (await call(`/roundtables/${next.id}`,'GET',c.token)).json();
+    assert.equal(remaining.status,'OPEN');assert.equal(remaining.members.length,2);
+    assert.equal((await call(`/roundtables/${next.id}/membership`,'DELETE',a.token)).status,204);
+    for(const account of [a,c]){
+      assert.equal((await call(`/roundtables/${next.id}`,'GET',account.token)).status,404);
+      const rooms=await (await call('/roundtables','GET',account.token)).json();assert.ok(!rooms.some(r=>r.id===next.id));
+    }
+    assert.equal((await call('/roundtables/join','POST',b.token,{code:next.inviteCode})).status,404);
   });
   await t.test('日期、时长、活动目标和邀请码格式校验', async () => {
     const a = await user('圆桌校验');

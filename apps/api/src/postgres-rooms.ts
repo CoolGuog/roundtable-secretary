@@ -91,7 +91,11 @@ export class PostgresRooms implements RoomStore {
   async leave(userId: string, id: string) {
     await this.transaction(async tx => {
       const room = await this.accessible(tx, userId, id);
-      if (room.ownerId === userId) throw new BadRequestException('发起人不能退出，请关闭圆桌');
+      if (room.ownerId === userId) {
+        await tx.roundtable.update({where:{id},data:{status:'CLOSED',version:{increment:1}}});
+        await tx.roundtableMember.deleteMany({where:{roomId:id}});
+        return;
+      }
       await tx.roundtableMember.deleteMany({ where: { roomId: id, userId } });
       await tx.roundtable.update({ where: { id }, data: { version: { increment: 1 } } });
     });

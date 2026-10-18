@@ -95,6 +95,7 @@ export async function roomAction(id: string, action: 'consent' | 'rotate' | 'clo
   }
   const all = records(), room = all.find(room => room.id === id);
   if (!room) throw new Error('圆桌不存在');
+  if (action === 'leave') { wx.setStorageSync(dataKey,all.filter(item=>item.id!==id));return; }
   if (room.status === 'CLOSED') throw new Error('圆桌已关闭');
   if (action === 'consent') { room.members[0].shareBusy = value === true; room.members[0].consentUpdatedAt = new Date().toISOString(); }
   else if (action === 'close') { room.status = 'CLOSED'; room.members[0].shareBusy = false; room.members[0].consentUpdatedAt = new Date().toISOString(); }

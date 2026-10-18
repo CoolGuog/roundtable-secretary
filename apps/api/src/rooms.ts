@@ -131,7 +131,7 @@ export class MemoryRooms implements RoomStore {
   }
   leave(userId: string, id: string) {
     const room = this.accessible(userId, id);
-    if (room.ownerId === userId) throw new BadRequestException('发起人不能退出，请关闭圆桌');
+    if (room.ownerId === userId) { room.status='CLOSED';room.members=[];room.version++;return; }
     room.members = room.members.filter(member => member.userId !== userId); room.version++;
   }
   close(userId: string, id: string) {
