@@ -95,7 +95,7 @@ test('协商接口使用约定路由与方法，本机演示明确拒绝协商',
 });
 test('本机日期和时间边界拒绝，API 操作使用约定路由与方法', async () => {
   const local = client();
-  for (const value of [{ ...sampleRoom, dateFrom: '2026-02-30' }, { ...sampleRoom, durationMinutes: 61 }, { ...sampleRoom, endTime: '08:00' }, { ...sampleRoom, goal: ' ' }]) await assert.rejects(local.api.createRoom(value));
+  for (const value of [{ ...sampleRoom, dateFrom: '2026-02-30' }, { ...sampleRoom, durationMinutes: 61 }, { ...sampleRoom, endTime: '08:00' }]) await assert.rejects(local.api.createRoom(value));
   assert.equal((await local.api.listRooms()).length, 0);
   const c = client('api');
   await c.api.listRooms(); await c.api.createRoom(sampleRoom); await c.api.joinRoom('A'.repeat(20));

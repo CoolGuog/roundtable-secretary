@@ -8,7 +8,7 @@ export function isLocalRoomMode() { return config.mode === 'local'; }
 function records(): Room[] { const value = wx.getStorageSync(dataKey); return Array.isArray(value) ? value : []; }
 function validate(input: RoomInput): RoomInput {
   if (!input.title.trim() || input.title.trim().length > 60) throw new Error('名称须为 1 至 60 字');
-  if (!input.goal.trim() || input.goal.trim().length > 500) throw new Error('目标须为 1 至 500 字');
+  if (input.goal.trim().length > 500) throw new Error('活动目标不能超过500字');
   for (const date of [input.dateFrom, input.dateTo]) {
     if (!/^20\d{2}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('请选择有效日期');
   }

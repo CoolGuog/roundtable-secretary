@@ -33,11 +33,11 @@ export function validateRoom(value: unknown): RoomInput {
   const last = validateArrangement({ title: input.title, date: input.dateTo, startTime: input.startTime, endTime: input.endTime });
   const days = (Date.parse(last.date) - Date.parse(first.date)) / 86400_000;
   if (days < 0 || days > 30) throw new BadRequestException('日期范围须为顺序排列的 1 至 31 天');
-  if (typeof input.goal !== 'string' || !input.goal.trim() || input.goal.trim().length > 500) throw new BadRequestException('活动目标须为 1 至 500 字');
+  if (input.goal !== undefined && (typeof input.goal !== 'string' || input.goal.trim().length > 500)) throw new BadRequestException('活动目标不能超过500字');
   const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
   const duration = input.durationMinutes;
   if (typeof duration !== 'number' || !Number.isInteger(duration) || duration < 15 || duration > 240 || duration % 15 || duration > minutes(first.endTime) - minutes(first.startTime)) throw new BadRequestException('活动时长须为 15 至 240 分钟、15 的倍数，且不超过每日时间窗口');
-  return { title: first.title, goal: input.goal.trim(), dateFrom: first.date, dateTo: last.date, startTime: first.startTime, endTime: first.endTime, durationMinutes: duration };
+  return { title: first.title, goal: typeof input.goal === 'string' ? input.goal.trim() : '', dateFrom: first.date, dateTo: last.date, startTime: first.startTime, endTime: first.endTime, durationMinutes: duration };
 }
 export function validateInvite(value: unknown) {
   const input = inputObject(value);

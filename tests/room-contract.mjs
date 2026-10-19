@@ -92,10 +92,14 @@ export async function roomContract(t, call, user) {
   });
   await t.test('日期、时长、活动目标和邀请码格式校验', async () => {
     const a = await user('圆桌校验');
-    for (const input of [{}, { ...sampleRoom, goal: ' ' }, { ...sampleRoom, title: '字'.repeat(61) }, { ...sampleRoom, goal: '字'.repeat(501) }, { ...sampleRoom, dateFrom: '2026-02-30' }, { ...sampleRoom, dateTo: dayAt(1) }, { ...sampleRoom, dateTo: dayAt(34) }, { ...sampleRoom, durationMinutes: 61 }, { ...sampleRoom, durationMinutes: 0 }, { ...sampleRoom, durationMinutes: 300 }, { ...sampleRoom, endTime: '09:30' }]) {
+    for (const input of [{}, { ...sampleRoom, title: '字'.repeat(61) }, { ...sampleRoom, goal: '字'.repeat(501) }, { ...sampleRoom, dateFrom: '2026-02-30' }, { ...sampleRoom, dateTo: dayAt(1) }, { ...sampleRoom, dateTo: dayAt(34) }, { ...sampleRoom, durationMinutes: 61 }, { ...sampleRoom, durationMinutes: 0 }, { ...sampleRoom, durationMinutes: 300 }, { ...sampleRoom, endTime: '09:30' }]) {
       assert.equal((await call('/roundtables', 'POST', a.token, input)).status, 400);
     }
     for (const value of [{}, { code: '' }, { code: 'A'.repeat(20), userId: a.user.id }]) assert.equal((await call('/roundtables/join', 'POST', a.token, value)).status, 400);
     assert.deepEqual(await (await call('/roundtables', 'GET', a.token)).json(), []);
+    for (const goal of ['', '   ', undefined]) {
+      const response=await call('/roundtables','POST',a.token,{...sampleRoom,goal});
+      assert.equal(response.status,201);assert.equal((await response.json()).goal,'');
+    }
   });
 }
